@@ -36,6 +36,26 @@ void list_append(List* list, int val) {
     list->size++;
 }
 
+// Função auxiliar "privada" para a remoção de um nó, retornando seu valor
+int remove_node(List* list, Node* prev, Node* toFree) {
+    // Atualizando ponteiros
+    if (prev == NULL) {
+        list->head = toFree->next;
+    }
+    else {
+        prev->next = toFree->next;
+        if (toFree == list->tail)
+            list->tail = prev;
+    }
+
+    // Salvando valor e removendo node
+    int node_val = toFree->val;
+    list->size--;
+    free(toFree);
+
+    return node_val;
+}
+
 // Função de remoção de nodes por índice, retornando o valor removido
 int remove_by_index(List* list, int idx) {
     if (idx < 0 || idx >= list->size) {
@@ -45,60 +65,35 @@ int remove_by_index(List* list, int idx) {
 
     // Caminhando até o índice solicitado
     Node* prev = NULL;
-    Node* aux = list->head;
+    Node* toFree = list->head;
     
     for (int i = 0; i < idx; i++) {
-        prev = aux;
-        aux = aux->next;
+        prev = toFree;
+        toFree = toFree->next;
     }
 
-    // Atualizando ponteiros
-    if (prev == NULL)
-        list->head = aux->next;
-    else
-        prev->next = aux->next;
-
-    // Salvando valor e removendo node
-    int node_val = aux->val;
-    free(aux);
-
-    return node_val;
+    return remove_node(list, prev, toFree);
 }
 
 // Função de remoção de nodes por valor, retornando o valor removido
 int remove_by_value(List* list, int val) {
     // Caminhando até o índice solicitado
     Node* prev = NULL;
-    Node* aux = list->head;
+    Node* toFree = list->head;
 
     // Caminhando até o valor solicitado
-    while (aux != NULL && aux->val != val) {
-        prev = aux;
-        aux = aux->next;
+    while (toFree != NULL && toFree->val != val) {
+        prev = toFree;
+        toFree = toFree->next;
     }
 
     // Se aux for nulo, o valor não foi encontrado!
-    if (aux == NULL) {
+    if (toFree == NULL) {
         perror("Value not found");
         exit(EXIT_FAILURE);
     }
 
-    // Atualizando ponteiros
-    if (prev == NULL) {
-        list->head = aux->next;
-    }
-    else if (aux == list->tail) {
-        
-    }
-    else {
-        prev->next = aux->next;
-    }
-        
-    // Salvando valor e removendo node
-    int node_val = aux->val;
-    free(aux);
-
-    return node_val;
+    return remove_node(list, prev, toFree);
 }
 
 // Função auxiliar que exibe uma lista
