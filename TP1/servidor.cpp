@@ -2,16 +2,29 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+/* **************** CABEÇALHOS **************** */
+
 #define BUFSZ 4096
+
+// Estrutura para armazenar o cliente
+typedef struct client {
+    int csock;
+    struct sockaddr_storage storage;
+} ClientData;
 
 void usage(const char* argv[]);
 void logexit(const char* error_msg);
+void* client_thread(void* args);
+ClientData* create_client(int csock, struct sockaddr_storage cstorage);
 int sockaddr_servidor_init(const char* proto,const char* portstr, struct sockaddr_storage* storage);
+
+/* **************** FUNÇÃO PRINCIPAL **************** */
 
 int main(int argc, const char** argv) {
     if (argc != 3)
@@ -36,7 +49,6 @@ int main(int argc, const char** argv) {
         logexit("listen");
 
     // Loop principal
-    char inBuffer[BUFSZ], outBuffer[BUFSZ];
     while (1) {
         // Variáveis para a comunicação com o cliente
         struct sockaddr_storage cstorage;
@@ -48,31 +60,12 @@ int main(int argc, const char** argv) {
         if (csock == -1)
             logexit("accept");
 
-        // Recebendo mensagem do cliente
-        memset(inBuffer, 0, BUFSZ);
-        size_t count = recv(csock, inBuffer, BUFSZ, 0);
+        // Alocando estrutura do cliente
+        ClientData* cdata = create_client(csock, cstorage);
 
-        // Inscrevendo o cliente na tag especificada
-        if (inBuffer[0] == '+') {
-            memset(outBuffer, 0, BUFSZ);
-            snprintf(outBuffer, BUFSZ, "< subscribed %s", inBuffer);
-
-            // Enviando mensagem
-            count = send(csock, outBuffer, strlen(outBuffer)+1, 0);
-            if (count != strlen(outBuffer)+1)
-                logexit("send");
-        }
-
-        // Desinscrevendo o cliente na tag especificada
-        else if (inBuffer[0] == '-') {
-            memset(outBuffer, 0, BUFSZ);
-            snprintf(outBuffer, BUFSZ, "< unsubscribed %s", inBuffer);
-
-            // Enviando mensagem
-            count = send(csock, outBuffer, strlen(outBuffer)+1, 0);
-            if (count != strlen(outBuffer)+1)
-                logexit("send");
-        }
+        // Disparando thread do cliente
+        pthread_t tid;
+        pthread_create(&tid, NULL, client_thread, cdata);
     }
 
     // Fechando o servidor
@@ -81,7 +74,6 @@ int main(int argc, const char** argv) {
 
     return 0;
 }
-
 
 /* **************** DEFINIÇÃO DAS FUNÇÕES **************** */
 
@@ -96,6 +88,53 @@ void usage(const char** argv) {
 void logexit(const char* error_msg) {
     perror(error_msg);
     exit(EXIT_FAILURE);
+}
+
+// Thread do cliente
+void* client_thread(void* args) {
+    // Recuperando as informações do cliente
+    ClientData* cdata = (ClientData*) args;
+    char inBuffer[BUFSZ], outBuffer[BUFSZ];
+
+    // Recebendo mensagem do cliente
+    memset(inBuffer, 0, BUFSZ);
+    size_t count = recv(cdata->csock, inBuffer, BUFSZ, 0);
+
+    // Inscrevendo o cliente na tag especificada
+    if (inBuffer[0] == '+') {
+        memset(outBuffer, 0, BUFSZ);
+        snprintf(outBuffer, BUFSZ, "< subscribed %s", inBuffer);
+
+        // Enviando mensagem
+        count = send(cdata->csock, outBuffer, strlen(outBuffer)+1, 0);
+        if (count != strlen(outBuffer)+1)
+            logexit("send");
+    }
+
+    // Desinscrevendo o cliente na tag especificada
+    else if (inBuffer[0] == '-') {
+        memset(outBuffer, 0, BUFSZ);
+        snprintf(outBuffer, BUFSZ, "< unsubscribed %s", inBuffer);
+
+        // Enviando mensagem
+        count = send(cdata->csock, outBuffer, strlen(outBuffer)+1, 0);
+        if (count != strlen(outBuffer)+1)
+            logexit("send");
+    }
+
+    close(cdata->csock);
+    pthread_exit(NULL);
+}
+
+ClientData* create_client(int csock, struct sockaddr_storage cstorage) {
+    ClientData* cdata = (ClientData*) malloc(sizeof(ClientData));
+    if (!cdata)
+        logexit("malloc");
+
+    cdata->csock = csock;
+    memcpy(&(cdata->storage), &cstorage, sizeof(cstorage));
+
+    return cdata;
 }
 
 // Função para inicializar o sockaddr_storage do servidor

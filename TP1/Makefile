@@ -3,7 +3,7 @@ CFLAGS = -Wall -std=c++11
 
 servidor:
 	$(CC) $(CFLAGS) -c ClientTags.cpp
-	$(CC) $(CFLAGS) ClientTags.o servidor.cpp -o servidor
+	$(CC) $(CFLAGS) ClientTags.o servidor.cpp -o servidor -lpthread
 
 cliente:
 	$(CC) $(CFLAGS) cliente.cpp -o cliente

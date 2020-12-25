@@ -7,11 +7,15 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
+/* **************** CABEÇALHOS **************** */
+
 #define BUFSZ 4096
 
 void usage(const char* argv[]);
 void logexit(const char* error_msg);
 int sockaddr_cliente_init(const char *addrstr, const char *portstr, struct sockaddr_storage *storage);
+
+/* **************** FUNÇÃO PRINCIPAL **************** */
 
 int main(int argc, const char* argv[]) {
     if (argc != 3)
@@ -57,7 +61,6 @@ int main(int argc, const char* argv[]) {
     close(sock);
     exit(EXIT_SUCCESS);
 }
-
 
 /* **************** DEFINIÇÃO DAS FUNÇÕES **************** */
 
