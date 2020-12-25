@@ -7,9 +7,10 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#include "Utils.h"
+#define BUFSZ 4096
 
 void usage(const char* argv[]);
+void logexit(const char* error_msg);
 int sockaddr_servidor_init(const char* proto,const char* portstr, struct sockaddr_storage* storage);
 
 int main(int argc, const char** argv) {
@@ -89,6 +90,12 @@ void usage(const char** argv) {
     printf("usage: %s <v4|v6> <server port>\n", argv[0]);
     printf("example: %s v4 51511\n", argv[0]);
     exit(EXIT_FAILURE);    
+}
+
+// Função para mostrar o erro e sair do programa
+void logexit(const char* error_msg) {
+    perror(error_msg);
+    exit(EXIT_FAILURE);
 }
 
 // Função para inicializar o sockaddr_storage do servidor

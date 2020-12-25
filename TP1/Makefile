@@ -2,12 +2,11 @@ CC = g++
 CFLAGS = -Wall -std=c++11
 
 servidor:
-	$(CC) $(CFLAGS) -c ClientTags.cpp Utils.c
-	$(CC) $(CFLAGS) ClientTags.o Utils.o servidor.c -o servidor
+	$(CC) $(CFLAGS) -c ClientTags.cpp
+	$(CC) $(CFLAGS) ClientTags.o servidor.cpp -o servidor
 
 cliente:
-	$(CC) $(CFLAGS) -c Utils.c
-	$(CC) $(CFLAGS) Utils.o cliente.c -o cliente
+	$(CC) $(CFLAGS) cliente.cpp -o cliente
 
 clean:
 	rm *.o cliente servidor

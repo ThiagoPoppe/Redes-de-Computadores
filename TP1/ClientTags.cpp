@@ -1,5 +1,4 @@
 #include "ClientTags.h"
-#include <iostream>
 
 // Função que adiciona uma tag no cliente representado por csock (socket do cliente)
 // Retornando uma string indicando o que foi feito
@@ -45,14 +44,4 @@ void ClientTags::remove_client(int csock) {
 // Função auxiliar que retorna se um cliente já possui uma tag
 bool ClientTags::has_tag(int csock, string tag) {
     return mymap[csock].find(tag) != mymap[csock].end();
-}
-
-// Função auxiliar para exibir a estrutura
-void ClientTags::show_clients() {
-    for (auto client : mymap) {
-        cout << "Client (Socket=" << client.first << "):" << endl;
-        for (auto tag : client.second)
-            cout << "  - " << tag << endl;
-        cout << endl;
-    }
 }

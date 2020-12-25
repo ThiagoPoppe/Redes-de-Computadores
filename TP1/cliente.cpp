@@ -7,9 +7,10 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
-#include "Utils.h"
+#define BUFSZ 4096
 
 void usage(const char* argv[]);
+void logexit(const char* error_msg);
 int sockaddr_cliente_init(const char *addrstr, const char *portstr, struct sockaddr_storage *storage);
 
 int main(int argc, const char* argv[]) {
@@ -65,6 +66,12 @@ void usage(const char* argv[]) {
     printf("usage: %s <server IP> <server port>\n", argv[0]);
     printf("example: %s 127.0.0.1 51511\n", argv[0]);
 
+    exit(EXIT_FAILURE);
+}
+
+// Função para mostrar o erro e sair do programa
+void logexit(const char* error_msg) {
+    perror(error_msg);
     exit(EXIT_FAILURE);
 }
 

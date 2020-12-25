@@ -29,9 +29,6 @@ public:
 
     // Função auxiliar que retorna se um cliente já possui uma tag
     bool has_tag(int csock, string tag);
-
-    // Função auxiliar para exibir a estrutura
-    void show_clients();
 };
 
 #endif
