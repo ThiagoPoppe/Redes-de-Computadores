@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "inet.h": "c",
+        "socket.h": "c",
+        "location_array.h": "c",
+        "types.h": "c",
+        "common.h": "c",
+        "stdlib.h": "c"
+    }
+}
