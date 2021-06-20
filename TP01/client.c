@@ -67,34 +67,6 @@ int count_messages(const char *sequence) {
     return count;
 }
 
-// Function to receive a complete message from the server
-// It returns 1 on success and 0 in case of a failure
-int receive_message(int client_socket, char *recv_buffer) {
-    // Resetting buffer content
-    memset(recv_buffer, 0, BUFSZ);
-    
-    size_t count_bytes = 0;
-    unsigned int total_bytes = 0;
-    int received_complete_message = 0;
-    
-    while (!received_complete_message) {
-        // Notice that the message may be sent to the client in "small parts"
-        // So we will keep track of the total bytes received until this moment
-        count_bytes = recv(client_socket, recv_buffer + total_bytes, BUFSZ - total_bytes, 0);
-        total_bytes += count_bytes;
-
-        // Checking if client disconnected (received 0 bytes)
-        if (count_bytes == 0)
-            break;
-
-        // Checking if the message was fully received
-        else if (recv_buffer[total_bytes - 1] == '\n')
-            received_complete_message = 1;
-    }
-
-    return received_complete_message;
-}
-
 // Function to send a message to the server
 void send_message(int client_socket, char *send_buffer) {
     // Resetting buffer content
@@ -134,7 +106,6 @@ int main(int argc, char const *argv[]) {
     char send_buffer[BUFSZ], recv_buffer[BUFSZ];
     
     while (!disconnected) {
-        // Sending message to server
         send_message(client_socket, send_buffer);
         
         // Receiving each sent message (we can send multiple messages on a single entry)
@@ -151,7 +122,6 @@ int main(int argc, char const *argv[]) {
         }
     }
 
-    // Closing connection
     close(client_socket);
     return 0;
 }

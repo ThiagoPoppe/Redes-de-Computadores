@@ -53,7 +53,7 @@ void remove_location(location_array_t* location_array, Point2D_t coord, char *st
     memset(status, 0, strlen(status));
 
     int location_idx = -1;
-    for (int i = 0; i < MAX_NUM_LOCATIONS; i++) {
+    for (int i = 0; i < location_array->size; i++) {
         Point2D_t curr_location = location_array->array[i];
         if (curr_location.x == coord.x && curr_location.y == coord.y) {
             location_idx = i;

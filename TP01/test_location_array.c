@@ -4,7 +4,7 @@
 
 #include "location_array.h"
 
-LocationArray_t location_array;
+location_array_t location_array;
 char answer[128];
 
 int total_tests = 15;

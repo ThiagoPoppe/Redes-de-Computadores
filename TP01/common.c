@@ -3,51 +3,38 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "common.h"
 
-/* Function to prompt an error and exit the program */
+// Function to prompt an error and exit the program
 void logexit(const char *msg) {
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
-// Function to parse an address to string
-void addrtostr(struct sockaddr *addr, char *str, size_t strsize) {
-    // Checking if output string was provided
-    if (str == NULL) {
-        logexit("Output string cannot be NULL.");
+// Function to receive a complete message from the network
+// It returns 1 on success and 0 in case of a failure
+int receive_message(int socket, char *buffer) {
+    int received_complete_message = 0;
+    size_t count_bytes = 0, total_bytes = 0;
+    
+    memset(buffer, 0, BUFSZ);
+    while (!received_complete_message) {
+        // Notice that the message may be sent to the client in "small parts"
+        // So we will keep track of the total bytes received until this moment
+        count_bytes = recv(socket, buffer + total_bytes, BUFSZ - total_bytes, 0);
+        total_bytes += count_bytes;
+
+        // Checking if client disconnected (received 0 bytes)
+        if (count_bytes == 0)
+            break;
+
+        // Checking if the message was fully received
+        else if (buffer[total_bytes - 1] == '\n')
+            received_complete_message = 1;
     }
 
-    int version;
-    uint16_t port;
-    char addrstr[INET6_ADDRSTRLEN + 1] = "";
-
-    // Trying to parse as IPv4
-    if (addr->sa_family == AF_INET) {
-        version = 4;
-        struct sockaddr_in *addr4 = (struct sockaddr_in *) addr;
-        if (!inet_ntop(AF_INET, &(addr4->sin_addr), addrstr, INET6_ADDRSTRLEN + 1)) {
-            logexit("ntop (network to presentation)");
-        }
-        port = ntohs(addr4->sin_port); // Network to host short
-    }
-
-    // Trying to parse as IPv6
-    else if (addr->sa_family == AF_INET6) {
-        version = 6;
-        struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *) addr;
-        if (!inet_ntop(AF_INET6, &(addr6->sin6_addr), addrstr, INET6_ADDRSTRLEN + 1)) {
-            logexit("ntop (network to presentation)");
-        }
-        port = ntohs(addr6->sin6_port); // Network to host short
-    }
-
-    else {
-        logexit("Unknown protocol family.");
-    }
-
-    // Constructing output string address representation
-    snprintf(str, strsize, "IPv%d %s %hu", version, addrstr, port);
+    return received_complete_message;
 }

@@ -18,18 +18,16 @@ void usage(const char *argv[]) {
 
 // Function to initiliaze the server storage, returning 0 on success and -1 otherwise
 int init_server_storage(struct sockaddr_storage *storage, const char *protostr, const char *portstr) {
-    if (protostr == NULL || portstr == NULL) {
+    if (protostr == NULL || portstr == NULL)
         return -1;
-    }
     
     // Clearing any garbage data on storage pointer
     memset(storage, 0, sizeof(*storage));
 
     // Parsing port from string to unsigned short
     uint16_t port = (uint16_t) atoi(portstr);
-    if (port == 0) {
+    if (port == 0)
         return -1;
-    }
 
     // Converting from host to network endian
     port = htons(port);
@@ -68,34 +66,6 @@ int get_client_socket(int server_socket) {
     return accept(server_socket, client_addr, &client_addrlen);
 }
 
-// Function to receive a complete message from the client
-// It returns 1 on success and 0 in case of a failure
-int receive_message(int client_socket, char *recv_buffer) {
-    // Resetting buffer content
-    memset(recv_buffer, 0, BUFSZ);
-
-    size_t count_bytes = 0;
-    unsigned int total_bytes = 0;
-    int received_complete_message = 0;
-
-    while (!received_complete_message) {
-        // Notice that the message may be sent to the client in "small parts"
-        // So we will keep track of the total bytes received until this moment
-        count_bytes = recv(client_socket, recv_buffer + total_bytes, BUFSZ - total_bytes, 0);
-        total_bytes += count_bytes;
-
-        // Checking if client disconnected (received 0 bytes)
-        if (count_bytes == 0)
-            break;
-        
-        // Checking if the message was fully received
-        else if (recv_buffer[total_bytes - 1] == '\n')
-            received_complete_message = 1;
-    }
-
-    return received_complete_message;
-}
-
 // Returns 1 if the command is valid and 0 otherwise
 int is_valid_command(char *cmd) {
     char *valid_commands[] = {"add", "rm", "query", "list", "kill"};
@@ -123,32 +93,25 @@ int is_numerical_string(char *str) {
 // This function will return 1 on success and 0 otherwise
 int parse_message(char *msg, char *cmd, int *x, int *y) {
     char *message_ptr;
-    
-    // Reading each message token
     char *cmd_token  = strtok_r(msg,  " ", &message_ptr);
     char *x_token    = strtok_r(NULL, " ", &message_ptr);
     char *y_token    = strtok_r(NULL, " ", &message_ptr);
     char *null_token = strtok_r(NULL, " ", &message_ptr);
 
-    // Checking if the command it's not NULL or invalid
+    // Checking if the command is valid
     if (cmd_token == NULL || !is_valid_command(cmd_token))
         return 0;
 
-    // Parsing the command token
+    // If the command is either "list" or "kill" we can't have any parameters
     strcpy(cmd, cmd_token);
-
-    // Checking if the command is a "non-parameter" command
-    // If so, we can't have a parameter (x_token must be null)
-    // If x_token is NULL we return success and failure otherwise
     if (strcmp(cmd, "list") == 0 || strcmp(cmd, "kill") == 0)
         return x_token == NULL;
 
-    // Checking if the message format is correct (given that the command accepts parameters)
-    // In other words, X and Y must be numerical strings and we can't have a third parameter
+    // Checking if the message is in the correct format (2 numerical parameters only)
     if (!is_numerical_string(x_token) || !is_numerical_string(y_token) || null_token != NULL)
         return 0;
     
-    // Parsing X and Y parameters
+    // Converting location strings to integers
     *x = atoi(x_token);
     *y = atoi(y_token);
 
@@ -205,7 +168,7 @@ int main(int argc, const char *argv[]) {
                 break;
             }
 
-            // Checking if the message has at least 500 bytes
+            // Checking if the message has no more than 500 bytes
             if (strlen(recv_buffer) > 500) {
                 client_disconnected = 1;
                 break;
@@ -227,33 +190,21 @@ int main(int argc, const char *argv[]) {
                     break;
                 }
 
-                else if (strcmp(cmd, "list") == 0) {
+                else if (strcmp(cmd, "list") == 0)
                     location_array_to_string(&locations, send_buffer);
-                    size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
-                    if (count_bytes != strlen(send_buffer))
-                        logexit("send");
-                }
-
-                else if (strcmp(cmd, "add") == 0) {
+                
+                else if (strcmp(cmd, "add") == 0)
                     add_location(&locations, (Point2D_t){x, y}, send_buffer);
-                    size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
-                    if (count_bytes != strlen(send_buffer))
-                        logexit("send");
-                }
-
-                else if (strcmp(cmd, "rm") == 0) {
+                
+                else if (strcmp(cmd, "rm") == 0)
                     remove_location(&locations, (Point2D_t){x, y}, send_buffer);
-                    size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
-                    if (count_bytes != strlen(send_buffer))
-                        logexit("send");
-                }
 
-                else if (strcmp(cmd, "query") == 0) {
+                else if (strcmp(cmd, "query") == 0)
                     get_closest_location(&locations, (Point2D_t){x, y}, send_buffer);
-                    size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
-                    if (count_bytes != strlen(send_buffer))
-                        logexit("send");
-                }
+                
+                size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
+                if (count_bytes != strlen(send_buffer))
+                    logexit("send");
 
                 sequence_token = strtok_r(NULL, "\n", &sequence_ptr);
             }
