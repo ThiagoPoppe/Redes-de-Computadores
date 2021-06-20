@@ -56,6 +56,64 @@ int init_client_storage(struct sockaddr_storage *storage, const char *addrstr, c
     return -1;
 }
 
+// Helper function to count the number of messages in a sequence of bytes
+// It returns the number of messages found
+int count_messages(const char *sequence) {
+    int count = 0;
+    for (int i = 0; i < strlen(sequence); i++)
+        if (sequence[i] == '\n')
+            count++;
+    
+    return count;
+}
+
+// Function to receive a complete message from the server
+// It returns 1 on success and 0 in case of a failure
+int receive_message(int client_socket, char *recv_buffer) {
+    // Resetting buffer content
+    memset(recv_buffer, 0, BUFSZ);
+    
+    size_t count_bytes = 0;
+    unsigned int total_bytes = 0;
+    int received_complete_message = 0;
+    
+    while (!received_complete_message) {
+        // Notice that the message may be sent to the client in "small parts"
+        // So we will keep track of the total bytes received until this moment
+        count_bytes = recv(client_socket, recv_buffer + total_bytes, BUFSZ - total_bytes, 0);
+        total_bytes += count_bytes;
+
+        // Checking if client disconnected (received 0 bytes)
+        if (count_bytes == 0)
+            break;
+
+        // Checking if the message was fully received
+        else if (recv_buffer[total_bytes - 1] == '\n')
+            received_complete_message = 1;
+    }
+
+    return received_complete_message;
+}
+
+// Function to send a message to the server
+void send_message(int client_socket, char *send_buffer) {
+    // Resetting buffer content
+    memset(send_buffer, 0, BUFSZ);
+
+    // Reading message from keyboard
+    printf("> ");
+    memset(send_buffer, 0, BUFSZ);
+    fgets(send_buffer, BUFSZ, stdin);
+
+    // Fixing message to send to server
+    strcpy(send_buffer, "add 111 111\nlist\nkill\nrm 111 111\n");
+
+    // Sending message to server and checking if we sent it correctly
+    size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
+    if (count_bytes != strlen(send_buffer))
+        logexit("send");
+}
+
 int main(int argc, char const *argv[]) {
     if (argc != 3)
         usage(argv);
@@ -81,39 +139,25 @@ int main(int argc, char const *argv[]) {
     printf("connected to: %s\n", addrstr);
 
     // Main loop to communicate with the server
-    char buffer[BUFSZ];
-    while (1) {
-        // Reading message from keyboard
-        printf("> ");
-        memset(buffer, 0, BUFSZ);
-        fgets(buffer, BUFSZ, stdin);
-
-        // Sending message to server and checking if we sent it correctly
-        size_t count_bytes = send(client_socket, buffer, strlen(buffer), 0);
-        if (count_bytes != strlen(buffer))
-            logexit("send");
-
-        // Resetting buffer content and receiving information from server
-        memset(buffer, 0, BUFSZ);
-        unsigned int total_bytes = 0;
-        while (1) {
-            // Notice that the message may be sent to the client in "small parts"
-            count_bytes = recv(client_socket, buffer + total_bytes, BUFSZ, 0);
-
-            // Updating total read bytes
-            total_bytes += count_bytes;
-
-            // Checking to see if the message was fully received
-            if (count_bytes == 0 || buffer[total_bytes - 1] == '\n')
+    int disconnected = 0;
+    char send_buffer[BUFSZ], recv_buffer[BUFSZ];
+    
+    while (!disconnected) {
+        // Sending message to server
+        send_message(client_socket, send_buffer);
+        
+        // Receiving each sent message (we can send multiple messages on a single entry)
+        // For example "add 111 111\nadd 111 222\n"
+        int expected_number_messages = count_messages(send_buffer);
+        while (expected_number_messages != 0) {
+            if (receive_message(client_socket, recv_buffer) == 0) {
+                disconnected = 1;
                 break;
+            }
+            
+            printf("< %s", recv_buffer);
+            expected_number_messages -= count_messages(recv_buffer);
         }
-
-        // Checking if the connection has terminated (received 0 bytes)
-        if (total_bytes == 0)
-            break;
-
-        printf("< received %u bytes\n", total_bytes);
-        printf("< %s", buffer);
     }
 
     // Closing connection

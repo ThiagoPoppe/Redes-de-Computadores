@@ -56,6 +56,53 @@ int init_server_storage(struct sockaddr_storage *storage, const char *protostr, 
     return -1;
 }
 
+// Function to return the client socket
+// It returns the client socket descriptor on success or -1 for errors
+int get_client_socket(int server_socket) {
+    // Creating client storage and address structure
+    struct sockaddr_storage client_storage;
+    struct sockaddr *client_addr = (struct sockaddr *) (&client_storage);
+
+    // Accepting and getting client socket
+    socklen_t client_addrlen = sizeof(client_storage);
+    int client_socket = accept(server_socket, client_addr, &client_addrlen);
+
+    // Logging client address
+    char client_addrstr[BUFSZ];
+    addrtostr(client_addr, client_addrstr, BUFSZ);
+    printf("received connection from: %s\n", client_addrstr);
+
+    return client_socket;
+}
+
+// Function to receive a complete message from the client
+// It returns 1 on success and 0 in case of a failure
+int receive_message(int client_socket, char *recv_buffer) {
+    // Resetting buffer content
+    memset(recv_buffer, 0, BUFSZ);
+
+    size_t count_bytes = 0;
+    unsigned int total_bytes = 0;
+    int received_complete_message = 0;
+
+    while (!received_complete_message) {
+        // Notice that the message may be sent to the client in "small parts"
+        // So we will keep track of the total bytes received until this moment
+        count_bytes = recv(client_socket, recv_buffer + total_bytes, BUFSZ - total_bytes, 0);
+        total_bytes += count_bytes;
+
+        // Checking if client disconnected (received 0 bytes)
+        if (count_bytes == 0)
+            break;
+        
+        // Checking if the message was fully received
+        else if (recv_buffer[total_bytes - 1] == '\n')
+            received_complete_message = 1;
+    }
+
+    return received_complete_message;
+}
+
 int main(int argc, const char *argv[]) {
     if (argc != 3)
         usage(argv);
@@ -80,8 +127,8 @@ int main(int argc, const char *argv[]) {
     if (bind(server_socket, server_addr, sizeof(server_storage)) != 0)
         logexit("bind");
 
-    // Listen connections (max to 1 in this case)
-    if (listen(server_socket, 1))
+    // Listen connections (max to 10 in this case)
+    if (listen(server_socket, 10))
         logexit("listen");
 
     // Debugging connection
@@ -91,67 +138,43 @@ int main(int argc, const char *argv[]) {
 
     // Main loop to receive clients
     int server_closed = 0;
+    char send_buffer[BUFSZ], recv_buffer[BUFSZ];
     while (!server_closed) {
-        // Creating client storage and address structure
-        struct sockaddr_storage client_storage;
-        struct sockaddr *client_addr = (struct sockaddr *) (&client_storage);
-
-        // Accepting and getting client socket
-        socklen_t client_addrlen = sizeof(client_storage);
-        int client_socket = accept(server_socket, client_addr, &client_addrlen);
-        if (client_socket == -1)
-            logexit("accept");
-
-        // Logging client address
-        char client_addrstr[BUFSZ];
-        addrtostr(client_addr, client_addrstr, BUFSZ);
-        printf("received connection from: %s\n", client_addrstr);
+        int client_socket = get_client_socket(server_socket);
 
         // Loop to communicate with the client
         int client_disconnected = 0;
         while (!client_disconnected) {
-            // Creating buffer structure to store messages
-            char buffer[BUFSZ];
-            memset(buffer, 0, BUFSZ);
+            if (receive_message(client_socket, recv_buffer) == 0)
+                client_disconnected = 1;
 
-            // Loop to receive client information
-            size_t count_bytes = 0;
-            unsigned int total_bytes = 0;
-            int received_complete_message = 0;
-            while (!received_complete_message && !client_disconnected) {
-                // Notice that the message may be sent to the client in "small parts"
-                // So we will keep track of the total bytes received until this moment
-                count_bytes = recv(client_socket, buffer + total_bytes, BUFSZ, 0);
-                total_bytes += count_bytes;
+            char *token = strtok(recv_buffer, "\n");
+            while (token != NULL) {
+                // PARSE MESSAGE
+                // CHECK MESSAGE
+                // SEND MESSAGE
 
-                // Checking if client disconnected (received 0 bytes)
-                if (count_bytes == 0 || count_bytes == -1)
-                    client_disconnected = 1;
-                
-                // Checking if the message was fully received
-                else if (buffer[total_bytes - 1] == '\n')
-                    received_complete_message = 1;
-            }
-
-            if (!client_disconnected) {
                 // Treating client message
-                if (strcmp(buffer, "kill\n") == 0) {
-                    client_disconnected = 1;
+                if (strcmp(token, "kill") == 0) {
                     server_closed = 1;
-                    close(client_socket);
+                    client_disconnected = 1;
                 }
                 else {
                     // Debugging client message
-                    printf("%u bytes: %s", total_bytes, buffer);
+                    printf("received message: %s\n", token);
 
                     // Sending a default message to the client
-                    sprintf(buffer, "this is a default message :)\n");
-                    count_bytes = send(client_socket, buffer, strlen(buffer), 0);
-                    if (count_bytes != strlen(buffer))
+                    sprintf(send_buffer, "this is a default message :)\n");
+                    size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
+                    if (count_bytes != strlen(send_buffer))
                         logexit("send");
                 }
+
+                token = strtok(NULL, "\n");
             }
         }
+
+        close(client_socket);
     }
 
     // Closing server

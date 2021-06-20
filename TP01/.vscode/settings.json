@@ -5,6 +5,7 @@
         "location_array.h": "c",
         "types.h": "c",
         "common.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "stdio.h": "c"
     }
 }

@@ -2,20 +2,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(int argc, char const *argv[]) {
-    char buffer[] = "Mensagem teste strcmp :D";
-    char *token;
+// Helper function to count the number of messages (number of \n)
+// It returns the number of messages found
+int count_messages(const char *msg) {
+    int count = 0;
+    for (int i = 0; i < strlen(msg); i++)
+        if (msg[i] == '\n')
+            count++;
+    
+    return count;
+}
 
-    token = strtok(buffer, " ");
-    while (token != NULL) {
-        printf("%s\n", token);
-        if (strcmp(token, "strcmp") == 0)
-            printf("CHEGUEI NA STRCMP!!\n");
+int main(int argc, const char *argv[]) {
+    char buffer[] = "oi xofanna\ndone\n";
 
-        token = strtok(NULL, " ");
-    }
+    char msg[512];
+    strncpy(msg, buffer, strlen(buffer)-5);
 
-    printf("Valor do buffer: %s\n", buffer);
+    printf("%s", msg);
 
     return 0;
 }
