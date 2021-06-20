@@ -101,12 +101,8 @@ void send_message(int client_socket, char *send_buffer) {
     memset(send_buffer, 0, BUFSZ);
 
     // Reading message from keyboard
-    printf("> ");
     memset(send_buffer, 0, BUFSZ);
     fgets(send_buffer, BUFSZ, stdin);
-
-    // Fixing message to send to server
-    strcpy(send_buffer, "add 111 111\nlist\nkill\nrm 111 111\n");
 
     // Sending message to server and checking if we sent it correctly
     size_t count_bytes = send(client_socket, send_buffer, strlen(send_buffer), 0);
@@ -133,11 +129,6 @@ int main(int argc, char const *argv[]) {
     if (connect(client_socket, client_addr, sizeof(client_storage)) != 0)
         logexit("connect");
 
-    // Debugging connection
-    char addrstr[BUFSZ];
-    addrtostr(client_addr, addrstr, BUFSZ);
-    printf("connected to: %s\n", addrstr);
-
     // Main loop to communicate with the server
     int disconnected = 0;
     char send_buffer[BUFSZ], recv_buffer[BUFSZ];
@@ -155,14 +146,12 @@ int main(int argc, char const *argv[]) {
                 break;
             }
             
-            printf("< %s", recv_buffer);
+            printf("%s", recv_buffer);
             expected_number_messages -= count_messages(recv_buffer);
         }
     }
 
     // Closing connection
-    printf("< closing connection with server...\n");
     close(client_socket);
-
     return 0;
 }
