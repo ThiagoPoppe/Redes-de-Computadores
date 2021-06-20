@@ -188,7 +188,7 @@ int main(int argc, const char *argv[]) {
         logexit("listen");
 
     // Creating structure to maintain the locations
-    LocationArray_t locations;
+    location_array_t locations;
     create_location_array(&locations);
 
     // Main loop to receive clients
