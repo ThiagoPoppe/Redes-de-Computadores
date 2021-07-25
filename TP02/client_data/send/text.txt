@@ -1,2 +1,0 @@
-Hello World
-Esse arquivo eh teste vindo do cliente :D

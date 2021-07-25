@@ -1,7 +1,36 @@
 import socket
 from sys import argv
-from base64 import b16encode as encode16
+from struct import pack, unpack
+from base64 import b16encode as encode16, encode
 from base64 import b16decode as decode16
+
+####### ESTRUTURA DO PACOTE #######
+#
+#   SYNC   => 32 bits  = 4 bytes (int -> I)
+#   SYNC   => 32 bits  = 4 bytes (int -> I)
+#   length => 16 bits  = 2 bytes (unsigned short -> H)
+#   chksum => 16 bits  = 2 bytes (unsigned short -> H)
+#   ID     =>  8 bits  = 1 byte (unsigned char -> B)
+#   flags  =>  8 bits  = 1 byte (unsigned char -> B)
+#   dados  => no máximo 2¹⁶-1 bytes (bytes -> s (must pass the number of bytes))
+#
+###################################
+
+SYNC = 3703579586
+MAX_DATA_BYTESIZE = 2**16 - 1
+
+def receive_message(conn):
+    """ Helper function to receive a message dealing with multiple recv calls """
+
+    recv_buffer = b''
+    while True:
+        data = conn.recv(65536)
+        if not data:
+            break
+        
+        recv_buffer += data
+
+    return recv_buffer
 
 def run_client(ip, host, infile, outfile):
     with open(infile, 'rb') as fin:
@@ -10,11 +39,16 @@ def run_client(ip, host, infile, outfile):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((ip, int(host)))
 
-        encoded_data = encode16(send_data)
-        print('Original sent data:', send_data)
-        print('Encoded sent data :', encoded_data)
+        length = len(send_data)
+        size = length
+        chksum = 42
+        id_ = 2
+        flags = 10
 
-        s.sendall(encoded_data)
+        fmt = 'IIHHBB{}s'.format(length)
+        packet = pack(fmt, SYNC, SYNC, length, chksum, id_, flags, send_data)
+
+        s.sendall(encode16(packet))
 
 def run_server(host, infile, outfile):
     buffer = b''
@@ -26,16 +60,12 @@ def run_server(host, infile, outfile):
         conn, addr = s.accept()
         with conn:
             print('connected by:', addr)
-            while True:
-                recv_data = conn.recv(8192)
-                if not recv_data:
-                    break
 
-                decoded_data = decode16(recv_data)
-                print('Original received data:', recv_data)
-                print('Decoded received data :', decoded_data)
-                
-                buffer += decoded_data
+            recv_buffer = decode16(receive_message(conn))
+            header = unpack('IIHHBB', recv_buffer[:14])
+            
+            print(header)
+            buffer = recv_buffer[14:]
 
     with open(outfile, 'wb') as fout:
         fout.write(buffer)
@@ -44,13 +74,15 @@ if __name__ == '__main__':
     if argv[1] == '-s':
         try:
             run_server(*argv[2:])
-        except Exception:
+        except Exception as e:
+            print(e)
             print('usage: python {} -s <port> <input> <output>'.format(argv[0]))
             exit(1)
 
     elif argv[1] == '-c':
         try:
             run_client(*argv[2:])
-        except Exception:
+        except Exception as e:
+            print(e)
             print('usage: python {} -c <ip> <port> <input> <output>'.format(argv[0]))
             exit(1)
