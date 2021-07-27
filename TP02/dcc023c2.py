@@ -1,88 +1,144 @@
+from os import sync
+import time
+import sys
 import socket
-from sys import argv
+import select
+
 from struct import pack, unpack
-from base64 import b16encode as encode16, encode
 from base64 import b16decode as decode16
+from base64 import b16encode as encode16
 
-####### ESTRUTURA DO PACOTE #######
-#
-#   SYNC   => 32 bits  = 4 bytes (int -> I)
-#   SYNC   => 32 bits  = 4 bytes (int -> I)
-#   length => 16 bits  = 2 bytes (unsigned short -> H)
-#   chksum => 16 bits  = 2 bytes (unsigned short -> H)
-#   ID     =>  8 bits  = 1 byte (unsigned char -> B)
-#   flags  =>  8 bits  = 1 byte (unsigned char -> B)
-#   dados  => no máximo 2¹⁶-1 bytes (bytes -> s (must pass the number of bytes))
-#
-###################################
+# TODO: Implementar computação do checksum e trocar quando define um frame
 
-SYNC = 3703579586
-MAX_DATA_BYTESIZE = 2**16 - 1
+BUFSZ = 2**16
+MAX_LENGTH = 2**16 - 1
 
-def receive_message(conn):
-    """ Helper function to receive a message dealing with multiple recv calls """
+SYNC = 0xdcc023c2
+SYNC_BYTES = pack('!I', SYNC)
 
-    recv_buffer = b''
-    while True:
-        data = conn.recv(65536)
-        if not data:
-            break
-        
-        recv_buffer += data
+def send_encoded_message(sock, send_buffer):
+    sock.sendall(encode16(send_buffer))
 
-    return recv_buffer
+def send_end_frame(sock):
+    print('Enviando frame de END')
+    frame = [SYNC, SYNC, 0, 0, 0, 0x40]
+    frame = pack('!IIHHBB', *frame)
+    send_encoded_message(sock, frame)
+
+def send_ack_frame(sock, id_):
+    print('Enviando frame de ACK')
+    frame = [SYNC, SYNC, 0, 0, id_, 0x80]
+    frame = pack('!IIHHBB', *frame)
+    send_encoded_message(sock, frame)
+
+def receive_decoded_message(sock, timeout=1.0):
+    ready = select.select([sock], [], [], timeout)
+    if not ready[0]:
+        return None
+    
+    buffer = decode16(sock.recv(BUFSZ))
+    sync_pos = buffer.find(2 * SYNC_BYTES)
+
+    # Procurando pela sequência de sincronização
+    while sync_pos == -1:
+        buffer = decode16(sock.recv(BUFSZ))
+        if not buffer: # não achamos
+            return None
+
+        sync_pos = buffer.find(2 * SYNC_BYTES)
+
+    # Recuperando começo do quadro e cabeçalho
+    buffer = buffer[sync_pos:]
+    header = unpack('!IIHHBB', buffer[:14])
+
+    # Iremos ler dados até atingirmos o esperado
+    while len(buffer[14:]) < header[2]:
+        data = sock.recv(BUFSZ)
+        if not data: # não temos mais nada para ler (provável erro no length)
+            return None
+
+        buffer += decode16(data)
+
+    # Computando tamanho do quadro e retornando
+    frame_length = 14 + header[2]
+    return buffer[:frame_length]
 
 def run_client(ip, host, infile, outfile):
     with open(infile, 'rb') as fin:
-        send_data = fin.read()
+        input_data = fin.read()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((ip, int(host)))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((ip, int(host)))
 
-        length = len(send_data)
-        size = length
-        chksum = 42
-        id_ = 2
-        flags = 10
+        n_frames = 1 + (len(input_data) // MAX_LENGTH)
+        print('Devo mandar {} frames'.format(n_frames))
 
-        fmt = 'IIHHBB{}s'.format(length)
-        packet = pack(fmt, SYNC, SYNC, length, chksum, id_, flags, send_data)
+        # Loop principal para enviar input
+        i = 0
+        while i < n_frames:
+            print('Enviando frame {}'.format(i))
 
-        s.sendall(encode16(packet))
+            # Obtendo os próximos bytes a ser enviados
+            send_buffer = input_data[:MAX_LENGTH]
+
+            frame = [SYNC, SYNC, len(send_buffer), 0, i%2, 0x3f, send_buffer]
+            frame = pack('!IIHHBB{}s'.format(len(send_buffer)), *frame)
+            send_encoded_message(sock, frame)
+
+            # Apenas continuamos a mandar dados se recebemos um ACK!
+            recv_buffer = receive_decoded_message(sock, 1.0)
+            if recv_buffer is None:
+                print('Ocorreu timeout ou algum erro de transmissão')
+                continue
+
+            header = unpack('!IIHHBB', recv_buffer[:14])
+            if header[5] == 0x80:
+                print('RECEBI ACK!')
+                # Avançando o ponteiro dos dados de entrada
+                i += 1
+                input_data = input_data[MAX_LENGTH:]
+    
+        # Terminando a conexão
+        send_end_frame(sock)
 
 def run_server(host, infile, outfile):
-    buffer = b''
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(('', int(host)))
-        s.listen()
+    last_id = 1
+    output_data = b''
+    done_receiving_data = False
 
-        conn, addr = s.accept()
-        with conn:
-            print('connected by:', addr)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('', int(host)))
+        sock.listen()
 
-            recv_buffer = decode16(receive_message(conn))
-            header = unpack('IIHHBB', recv_buffer[:14])
+        conn, addr = sock.accept()
+        print('connected by:', addr)
+
+        while not done_receiving_data:
+            recv_buffer = receive_decoded_message(conn)
+            if recv_buffer is None:
+                print('Ocorreu timeout ou algum erro de transmissão')
+                continue
             
-            print(header)
-            buffer = recv_buffer[14:]
+            sync1, sync2, length, chksum, id_, flags = unpack('!IIHHBB', recv_buffer[:14])
+            if flags == 0x40:
+                print('Encerrando transmissão')
+                done_receiving_data = True
+                break
+            
+            # Recebemos quadros com id diferente do último quadro
+            elif id_ != last_id:
+                output_data += recv_buffer[14:14+length].replace(2*SYNC_BYTES, b'')
+                last_id = id_
+                
+                send_ack_frame(conn, id_)
 
     with open(outfile, 'wb') as fout:
-        fout.write(buffer)
+        fout.write(output_data) 
 
 if __name__ == '__main__':
-    if argv[1] == '-s':
-        try:
-            run_server(*argv[2:])
-        except Exception as e:
-            print(e)
-            print('usage: python {} -s <port> <input> <output>'.format(argv[0]))
-            exit(1)
+    if sys.argv[1] == '-s':
+        run_server(*sys.argv[2:])
 
-    elif argv[1] == '-c':
-        try:
-            run_client(*argv[2:])
-        except Exception as e:
-            print(e)
-            print('usage: python {} -c <ip> <port> <input> <output>'.format(argv[0]))
-            exit(1)
+    elif sys.argv[1] == '-c':
+        run_client(*sys.argv[2:])
