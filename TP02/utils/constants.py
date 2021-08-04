@@ -1,0 +1,7 @@
+BUFSZ = 4096
+MAX_LENGTH = 2**16 - 1
+
+SYNC = 0xdcc023c2
+SYNC_BYTES = b'\xdc\xc0\x23\xc2\xdc\xc0\x23\xc2'
+
+HEADER_FORMAT = '!IIHHBB'
