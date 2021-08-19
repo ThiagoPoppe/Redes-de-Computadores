@@ -1,65 +1,126 @@
-import time
 import socket
 from struct import unpack
 
 from utils import constants
-from utils.common import create_frames
-from utils.common import send_ack_frame
-from utils.common import recv_decoded_frame
+from utils.base import BaseNode
 
-class Server:
+class Server(BaseNode):
+    """ Classe para modelar a ponta passiva da comunicação. """
+
     def __init__(self, host, input_file, output_file):
-        # Criando quadros de envio
-        with open(input_file, 'rb') as infile:
-            self.send_frames = create_frames(infile.read())
+        super().__init__(input_file, output_file)
 
-        # Definindo lista de quadros de saída
-        self.recv_frames = []
-        self.output_file = output_file
-
-        # Criando o socket do servidor
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Criando o socket do servidor (ponta passiva)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind(('', int(host)))
         self.socket.listen()
 
-    def __del__(self):
-        self.socket.close()
-
     def run(self):
-        conn, addr = self.socket.accept()
-        print('connected by:', addr)
+        # print('Devemos enviar {} quadros'.format(len(self.send_frames)))
 
-        last_id = 1
-        last_chksum = -1
+        conn, addr = self.socket.accept()
+        # print('connected by:', addr)
+
+        # Laço para enviarmos e receber alguns dados da outra ponta
         while True:
+            # Enviando o quadro de dados atual
+            # print('enviando quadro', self.send_idx)
+            self.send_data_frame(conn)
+
+            # Recebendo algo da outra ponta
             try:
-                frame = recv_decoded_frame(conn, last_chksum, last_id)
+                frame = self.search_frame(conn, self.last_chksum, self.last_id)
             except socket.timeout:
-                print('timeout!')
+                # print('timeout!')
                 continue
             except RuntimeError:
-                print('erro na conexão, encerrando...')
+                # print('erro na conexão, encerrando...')
+                self.close_node = True
                 break
 
+            # Verificando se conseguimos encontrar um quadro válido
             if frame is None:
                 continue
 
+            # Extraíndo o cabeçalho do quadro recebido
             header = unpack(constants.HEADER_FORMAT, frame[:14])
+            # print('recebi quadro com header:', header)
+
+            # Verificando se recebemos um quadro de confirmação
+            if header[5] == 0x80 and (self.send_idx % 2) == header[4]:
+                # print('recebi um ACK do quadro {}, mandando próximo quadro'.format(self.send_idx))
+                
+                # Se estamos no último quadro (END) não iremos mais mandar dados
+                self.send_idx += 1
+                if self.send_idx == len(self.send_frames):
+                    # print('recebi meu ACK do END')
+                    break
 
             # Verificando se recebemos um quadro duplicado
-            if header[3] == last_chksum and header[4] == last_id:
-                print('recebemos um quadro duplicado!')
-                send_ack_frame(conn, last_id)
+            elif header[3] == self.last_chksum and header[4] == self.last_id:
+                # print('recebemos um quadro duplicado! enviando ack')
+                self.send_ack_frame(conn, self.last_id)
+
+            # Se nenhuma condição for satisfeita, então teremos um quadro com dados!
+            else:
+                # Caso o id seja igual (i.e quadro repetido) mas com checksum diferente
+                # significa que recebemos um quadro com algum erro!
+                if header[3] != self.last_chksum and header[4] == self.last_id:
+                    continue
+
+                # Iremos salvar o quadro e enviar um quadro de confirmação
+                self.last_chksum, self.last_id = header[3], header[4]
+                self.recv_frames.append(frame)
+
+                # print('recebi dado... enviando ack!')
+                self.send_ack_frame(conn, header[4])
+
+        # print('todos os dados de entrada foram enviados')
+
+        # Executando loop para verificar se precisamos receber mais alguma coisa
+        while not self.close_node:
+            try:
+                frame = self.search_frame(conn, self.last_chksum, self.last_id)
+            except socket.timeout:
+                # print('timeout, posso finalizar!')
+                self.close_node = True
+                continue
+            except RuntimeError:
+                # print('erro na conexão, encerrando...')
+                break
+
+            # Verificando se conseguimos encontrar um quadro válido
+            if frame is None:
                 continue
 
-            # Salvando quadro e enviando quadro de confirmação
-            last_chksum, last_id = header[3], header[4]
-            self.recv_frames.append(frame)
+            # Extraíndo o cabeçalho do quadro recebido
+            header = unpack(constants.HEADER_FORMAT, frame[:14])
 
-            print('enviando ack!')
-            send_ack_frame(conn, header[4])
+            # Caso recebermos um quadro de ACK podemos desconsiderar
+            # uma vez que já enviamos todos os dados necessários.
+            if header[5] == 0x80:
+                continue
 
+            # Verificando se recebemos um quadro duplicado
+            if header[3] == self.last_chksum and header[4] == self.last_id:
+                # print('recebemos um quadro duplicado!')
+                self.send_ack_frame(conn, self.last_id)
+
+            # Se nenhuma condição for satisfeita, então teremos um quadro com dados!
+            # Iremos salvar o quadro e enviar um quadro de confirmação
+            else:
+                # Caso o id seja igual (i.e quadro repetido) mas com checksum diferente
+                # significa que recebemos um quadro com algum erro!
+                if header[3] != self.last_chksum and header[4] == self.last_id:
+                    continue
+
+                self.last_chksum, self.last_id = header[3], header[4]
+                self.recv_frames.append(frame)
+
+                # print('enviando ack!')
+                self.send_ack_frame(conn, header[4])
+
+        # Escrevendo os dados recebidos pela outra ponta e encerrando
         with open(self.output_file, 'wb') as outfile:
             data = b''.join([frame[14:] for frame in self.recv_frames])
             outfile.write(data)

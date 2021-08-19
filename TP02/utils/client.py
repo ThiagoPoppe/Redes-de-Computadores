@@ -1,96 +1,120 @@
-import random
 import socket
 from struct import unpack
 
 from utils import constants
-from utils.common import create_frames
-from utils.common import send_ack_frame
-from utils.common import send_encoded_frame
-from utils.common import recv_decoded_frame
+from utils.base import BaseNode
 
-class Client:
+class Client(BaseNode):
+    """ Classe para modelar a ponta ativa da comunicação. """
+
     def __init__(self, ip, host, input_file, output_file):
-        # Criando quadros de envio
-        with open(input_file, 'rb') as infile:
-            self.send_frames = create_frames(infile.read())
-
-        # Definindo lista de quadros de saída
-        self.recv_frames = []
-        self.output_file = output_file
+        super().__init__(input_file, output_file)
         
-        # Criando o socket do cliente
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Conectando com o servidor (ponta passiva)
         self.socket.connect((ip, int(host)))
 
-    def __del__(self):
-        self.socket.close()
-
     def run(self):
-        send_idx = 0
-        last_id = 1
-        last_chksum = -1
-        print('Tenho que mandar {} frames'.format(len(self.send_frames)))
-        while send_idx < len(self.send_frames):
-            print('\nEnviando quadro', send_idx)
+        # print('Devemos enviar {} quadros'.format(len(self.send_frames)))
 
-            to_send = bytearray(self.send_frames[send_idx])
+        # Laço para enviarmos e receber alguns dados da outra ponta
+        while True:
+            # Enviando o quadro de dados atual
+            # print('enviando quadro', self.send_idx)
+            self.send_data_frame(self.socket)
 
-            coin = random.uniform(0,1)
-            if coin < 0.5:
-                print('enviaremos o quadro com:')
-
-                coin = random.uniform(0,1)
-                if coin < 0.05:
-                    print('erro no SYNC!')
-                    to_send[0:1] = b'\xff'
-                
-                if coin < 0.15:
-                    print('erro no length')
-                    to_send[8:10] = b'\x04\x08'
-                
-                if coin < 0.25:
-                    print('erro no checksum!')
-                    to_send[10:12] = b'\x04\x08'
-                
-                if coin < 0.5:
-                    print('erro no id')
-                    to_send[12:13] = b'\x02'
-                
-                if coin < 0.75:
-                    print('erro no flag')
-                    to_send[13:14] = b'\xfa'
-
-                if coin <= 1:
-                    print('erro nos dados')
-                    to_send[14:16] = b'\x04\x08'
-            
-            input()
-            send_encoded_frame(self.socket, to_send)
-
+            # Recebendo algo da outra ponta
             try:
-                frame = recv_decoded_frame(self.socket, last_chksum, last_id)
+                frame = self.search_frame(self.socket, self.last_chksum, self.last_id)
             except socket.timeout:
-                print('timeout!')
+                # print('timeout!')
                 continue
             except RuntimeError:
-                print('erro na conexão, encerrando...')
+                # print('erro na conexão, encerrando...')
+                self.close_node = True
                 break
+
+            # Verificando se conseguimos encontrar um quadro válido
+            if frame is None:
+                continue
             
-            # Verificamos se conseguimos ler um quadro válido
+            # Extraíndo o cabeçalho do quadro recebido
+            header = unpack(constants.HEADER_FORMAT, frame[:14])
+            # print('recebi quadro com header:', header)
+
+            # Verificando se recebemos um quadro de confirmação
+            if header[5] == 0x80 and (self.send_idx % 2) == header[4]:
+                # print('recebi um ACK do quadro {}, mandando próximo quadro'.format(self.send_idx))
+                
+                # Se estamos no último quadro (END) não iremos mais mandar dados
+                self.send_idx += 1
+                if self.send_idx == len(self.send_frames):
+                    # print('recebi meu ACK do END')
+                    break
+
+            # Verificando se recebemos um quadro duplicado
+            elif header[3] == self.last_chksum and header[4] == self.last_id:
+                # print('recebemos um quadro duplicado! enviando ack')
+                self.send_ack_frame(self.socket, self.last_id)
+
+            # Se nenhuma condição for satisfeita, então teremos um quadro com dados!
+            else:
+                # Caso o id seja igual (i.e quadro repetido) mas com checksum diferente
+                # significa que recebemos um quadro com algum erro!
+                if header[3] != self.last_chksum and header[4] == self.last_id:
+                    continue
+
+                # Iremos salvar o quadro e enviar um quadro de confirmação
+                self.last_chksum, self.last_id = header[3], header[4]
+                self.recv_frames.append(frame)
+
+                # print('recebi dado... enviando ack!')
+                self.send_ack_frame(self.socket, header[4])
+
+        # Executando loop para verificar se precisamos receber mais alguma coisa
+        while not self.close_node:
+            try:
+                frame = self.search_frame(self.socket, self.last_chksum, self.last_id)
+            except socket.timeout:
+                # print('timeout, posso finalizar!')
+                self.close_node = True
+                continue
+            except RuntimeError:
+                # print('erro na conexão, encerrando...')
+                break
+
+            # Verificando se conseguimos encontrar um quadro válido
             if frame is None:
                 continue
 
+            # Extraíndo o cabeçalho do quadro recebido
             header = unpack(constants.HEADER_FORMAT, frame[:14])
 
-            # Verificando se recebemos um quadro duplicado
-            if header[3] == last_chksum and header[4] == last_id:
-                print('recebemos um quadro duplicado!')
-                send_ack_frame(self.socket, last_id)
+            # Caso recebermos um quadro de ACK podemos desconsiderar
+            # uma vez que já enviamos todos os dados necessários.
+            if header[5] == 0x80:
                 continue
 
-            # Verificando se recebemos um quadro de confirmação
-            if header[5] == 0x80 and (send_idx % 2) == header[4]:
-                print('recebi um ack do quadro {}, mandando próximo quadro'.format(send_idx))
-                send_idx += 1
+            # Verificando se recebemos um quadro duplicado
+            elif header[3] == self.last_chksum and header[4] == self.last_id:
+                # print('recebemos um quadro duplicado! enviando ack')
+                # print(header)
+                self.send_ack_frame(self.socket, self.last_id)
 
-            last_chksum, last_id = header[3], header[4]
+            # Se nenhuma condição for satisfeita, então teremos um quadro com dados!
+            # Iremos salvar o quadro e enviar um quadro de confirmação
+            else:
+                # Caso o id seja igual (i.e quadro repetido) mas com checksum diferente
+                # significa que recebemos um quadro com algum erro!
+                if header[3] != self.last_chksum and header[4] == self.last_id:
+                    continue
+
+                self.last_chksum, self.last_id = header[3], header[4]
+                self.recv_frames.append(frame)
+
+                # print('enviando ack!')
+                self.send_ack_frame(self.socket, header[4])
+
+        # Escrevendo os dados recebidos pela outra ponta e encerrando
+        with open(self.output_file, 'wb') as outfile:
+            data = b''.join([frame[14:] for frame in self.recv_frames])
+            outfile.write(data)
