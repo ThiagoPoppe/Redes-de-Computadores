@@ -6,11 +6,7 @@ type_encoder = {
     'CLIST': 7, 'FILE': 8, 'FILE_CHUNK': 9
 }
 
-type_decoder = {
-    1: 'OK', 2: 'ERRO', 3: 'OI',
-    4: 'FLW', 5: 'MSG', 6: 'CREQ',
-    7: 'CLIST', 8: 'FILE', 9: 'FILE_CHUNK'
-}
+type_decoder = {value:key for key, value in type_encoder.items()}
 
 def recv_expected_length(sock, expected_length):
     """
@@ -31,22 +27,8 @@ def recv_expected_length(sock, expected_length):
 
     return buffer
 
-def get_message_type(type):
-    if type == 'OK':
-        return 1
-    if type == 'ERRO':
-        return 2
-    if type == 'OI':
-        return 3
-    if type == 'FLW':
-        return 4
-    if type == 'MSG':
-        return 5
-    if type == 'CREQ':
-        return 6
-    if type == 'CLIST':
-        return 7
-    if type == 'FILE':
-        return 8
-    if type == 'FILE_CHUNK':
-        return 9
+def is_sender(id):
+    return id >= 1 and id <= (2**12 - 1)
+
+def is_displayer(id):
+    return id >= 2**12 and id <= (2**13 - 1)
