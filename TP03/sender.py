@@ -103,6 +103,17 @@ def run_client(sock, source_id):
             else:
                 print('< an error has occured, please try again')
         
+        elif message_type == 'CREQ':
+            send_creq_message(sock, source_id, dest_id, seq_number)
+
+            header = recv_expected_length(sock, 8)
+            header = unpack('!4H', header)
+            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
+                print('< message sent successfully')
+                seq_number += 1
+            else:
+                print('< an error has occured, please try again')
+                
         else:
             print('< message type must be FLW, MSG, CREQ or FILE')
 

@@ -23,7 +23,6 @@ def run_client(sock, source_id):
         header = recv_expected_length(sock, 8)
         header = unpack('!4H', header)
 
-        # Caso recebermos um FLW devemos encerrar a conexão
         if type_decoder[header[0]] == 'FLW':
             send_ok_message(sock, source_id, SERVER_ID, header[3])
             print('< closing displayer... Goodbye!')
@@ -37,6 +36,17 @@ def run_client(sock, source_id):
             print('< MSG from {}: {}'.format(header[1], message_body.decode('ascii')))
             send_ok_message(sock, source_id, SERVER_ID, header[3])
 
+        elif type_decoder[header[0]] == 'CLIST':
+            # Lendo a lista de clientes
+            n_clients = unpack('!H', recv_expected_length(sock, 2))[0]
+            client_list = recv_expected_length(sock, 2 * n_clients)
+
+            fmt = '!{}H'.format(n_clients)
+            client_list = unpack(fmt, client_list)
+
+            print('< client list:', client_list)
+            send_ok_message(sock, source_id, SERVER_ID, header[3])
+            
 if __name__ == '__main__':
     if len(argv) != 2:
         print('usage: {} <IP:port>'.format(argv[0]))

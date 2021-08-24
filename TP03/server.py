@@ -8,7 +8,7 @@ from utils.common import recv_expected_length
 from utils.common import is_sender, is_displayer
 from utils.common import type_encoder, type_decoder
 from utils.message_validation import validate_oi_message
-from utils.message_creation import send_erro_message, send_flw_message, send_msg_message, send_ok_message
+from utils.message_creation import send_clist_message, send_creq_message, send_erro_message, send_flw_message, send_msg_message, send_ok_message
 
 # Criaremos um dicionário para mantermos os sockets disponíveis
 # Cada chave (socket) terá como informação o id do socket associado
@@ -181,12 +181,12 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
 
     elif is_sender(dest_id):
         if dest_id not in senders:
-            print('< [{}] client trying to send MSG to non-existent sender'.format(client_id))
+            print('< [{}] client trying to send message to non-existent sender'.format(client_id))
             return False
 
         displayer_id = senders[dest_id]['displayer_id']
         if displayer_id is None:
-            print('< [{}] client trying to send MSG to sender with no displayer'.format(client_id))
+            print('< [{}] client trying to send message to sender with no displayer'.format(client_id))
             return False
         
         # Enviando mensagem para exibidor e esperando um OK
@@ -195,7 +195,7 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
         
         header = recv_expected_length(displayer_sock, 8)
         header = unpack('!4H', header)
-        
+
         if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
             print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
             return True
@@ -205,7 +205,7 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
     
     elif is_displayer(dest_id):
         if dest_id not in displayers:
-            print('< [{}] client trying to send MSG to non-existent displayer'.format(client_id))
+            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
             return False
 
         # Enviando mensagem para exibidor e esperando um OK
@@ -224,7 +224,76 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
 
     print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
     return False
+
+def process_sender_creq_message(sock, client_id, dest_id, seq_number):
+    # Construindo a lista de clientes
+    client_list = [*senders] + [*displayers]
+
+    # Verificando se a mensagem será de broadcast
+    if dest_id == 0:
+        for displayer_id in displayers:
+            # Enviando mensagem para o exibidor
+            displayer_sock = displayers[displayer_id]['sock']
+            send_clist_message(displayer_sock, client_id, displayer_id, seq_number, client_list)
+
+            # Esperando por uma mensagem de OK
+            header = recv_expected_length(displayer_sock, 8)
+            header = unpack('!4H', header)
+
+            if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+                print('< [{}] message sent to displayer {}'.format(client_id, displayer_id))
+            else:
+                print('< [{}] an unexpected error has occured :('.format(client_id))
+                return False
+        
+        return True
+
+    elif is_sender(dest_id):
+        if dest_id not in senders:
+            print('< [{}] client trying to send message to non-existent sender'.format(client_id))
+            return False
+
+        displayer_id = senders[dest_id]['displayer_id']
+        if displayer_id is None:
+            print('< [{}] client trying to send message to sender with no displayer'.format(client_id))
+            return False
+        
+        # Enviando mensagem para exibidor e esperando um OK
+        displayer_sock = displayers[displayer_id]['sock']
+        send_clist_message(displayer_sock, client_id, displayer_id, seq_number, client_list)
+        
+        header = recv_expected_length(displayer_sock, 8)
+        header = unpack('!4H', header)
+
+        if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+            print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
+            return True
+        else:
+            print('< [{}] an unexpected error has occured :('.format(client_id))
+            return False
     
+    elif is_displayer(dest_id):
+        if dest_id not in displayers:
+            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
+            return False
+
+        # Enviando mensagem para exibidor e esperando um OK
+        displayer_sock = displayers[dest_id]['sock']
+        send_clist_message(displayer_sock, client_id, dest_id, seq_number, client_list)
+        
+        header = recv_expected_length(displayer_sock, 8)
+        header = unpack('!4H', header)
+
+        if header == (type_encoder['OK'], dest_id, SERVER_ID, seq_number):
+            print('< [{}] message sent to displayer {}'.format(client_id, dest_id))
+            return True
+        else:
+            print('< [{}] an unexpected error has occured :('.format(client_id))
+            return False
+
+    print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
+    return False
+
 def process_sender(client_id):
     """ Função para implementarmos a lógica dos emissores. """
 
@@ -248,6 +317,11 @@ def process_sender(client_id):
     elif type_decoder[message_type] == 'MSG':
         response_header = [sock, SERVER_ID, client_id, seq_number]
         success = process_sender_msg_message(sock, client_id, dest_id, seq_number)
+        send_ok_message(*response_header) if success else send_erro_message(*response_header)
+
+    elif type_decoder[message_type] == 'CREQ':
+        response_header = [sock, SERVER_ID, client_id, seq_number]
+        success = process_sender_creq_message(sock, client_id, dest_id, seq_number)
         send_ok_message(*response_header) if success else send_erro_message(*response_header)
 
     else:
