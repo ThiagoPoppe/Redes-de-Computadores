@@ -2,7 +2,11 @@ from utils.common import is_displayer
 from utils.constants import SERVER_ID
 
 def validate_oi_message(source_id, dest_id, displayers):
-    """ Retorna -1 em caso de erro, 0 quando devemos inicializar um exibidor e 1 se for um emissor """
+    """ 
+        Função auxiliar para validarmos uma mensagem de OI.
+        Essa função 0 quando devemos criar um exibidor e 1 se for um emissor.
+        Essa função também retornará -1 se houver algum "erro" durante a valicação.
+    """
 
     # Verificando se estamos associando um exibidor que não existe
     if is_displayer(source_id) and source_id not in displayers:
