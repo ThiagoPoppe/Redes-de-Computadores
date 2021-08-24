@@ -23,8 +23,7 @@ def send_flw_message(sock, source_id, dest_id, seq_number):
     message = pack('!4H', *message)
     sock.sendall(message)
 
-def send_msg_message(sock, source_id, dest_id, seq_number, msg):
-    ascii_msg = msg.encode('ascii')
+def send_msg_message(sock, source_id, dest_id, seq_number, ascii_msg):
     n_bytes = len(ascii_msg)
 
     header = [type_encoder['MSG'], source_id, dest_id, seq_number]

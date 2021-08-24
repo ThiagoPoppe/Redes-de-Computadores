@@ -25,11 +25,17 @@ def run_client(sock, source_id):
 
         # Caso recebermos um FLW devemos encerrar a conexão
         if type_decoder[header[0]] == 'FLW':
-            send_ok_message(sock, source_id, SERVER_ID, seq_number)
+            send_ok_message(sock, source_id, SERVER_ID, header[3])
             print('< closing displayer... Goodbye!')
             break
-        
-        print('< received header:', header)
+
+        elif type_decoder[header[0]] == 'MSG':
+            # Lendo a mensagem propriamente dita
+            message_length = unpack('!H', recv_expected_length(sock, 2))[0]
+            message_body = recv_expected_length(sock, message_length)
+            
+            print('< MSG from {}: {}'.format(header[1], message_body.decode('ascii')))
+            send_ok_message(sock, source_id, SERVER_ID, header[3])
 
 if __name__ == '__main__':
     if len(argv) != 2:

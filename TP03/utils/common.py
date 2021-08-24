@@ -22,7 +22,7 @@ def recv_expected_length(sock, expected_length):
     while bytes_received < expected_length:            
         data = sock.recv(min(expected_length - bytes_received, BUFSZ))
         if not data:
-            raise RuntimeError('< connection terminated unexpectedly')
+            raise RuntimeError('connection terminated unexpectedly')
 
         buffer += data
         bytes_received = bytes_received + len(data)

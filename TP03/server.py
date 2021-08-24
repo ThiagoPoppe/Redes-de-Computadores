@@ -8,7 +8,7 @@ from utils.common import recv_expected_length
 from utils.common import is_sender, is_displayer
 from utils.common import type_encoder, type_decoder
 from utils.message_validation import validate_oi_message
-from utils.message_creation import send_erro_message, send_flw_message, send_ok_message
+from utils.message_creation import send_erro_message, send_flw_message, send_msg_message, send_ok_message
 
 # Criaremos um dicionário para mantermos os sockets disponíveis
 # Cada chave (socket) terá como informação o id do socket associado
@@ -114,6 +114,117 @@ def process_displayer(client_id):
     # Enviando uma mensagem de erro (default)
     send_erro_message(sock, SERVER_ID, client_id, seq_number)
 
+def process_sender_flw_message(sock, client_id, dest_id, seq_number, displayer_id):
+    """ 
+        Função para processarmos uma mensagem de FLW.
+        Retornaremos True quando recebermos um OK e False caso contrário.
+    """
+
+    # Verificando se a mensagem não foi direcionada para o servidor
+    if dest_id != SERVER_ID:
+        print('< FLW message not directed to server')
+        return False
+
+    # Verificando se temos um exibidor associado, se sim devemos removê-lo
+    if displayer_id is not None:
+        displayer_sock = displayers[displayer_id]['sock']
+        send_flw_message(displayer_sock, SERVER_ID, displayer_id, seq_number)
+
+        # Esperando receber um OK do cliente
+        header = recv_expected_length(displayer_sock, 8)
+        header = unpack('!4H', header)
+
+        if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+            displayers.pop(displayer_id)
+            available_sockets.pop(displayer_sock)
+
+            # Possibilitando com que o identificador seja reutilizado
+            displayer_ids.add(displayer_id)
+            print('< [{}] displayer {} disconnected'.format(client_id, displayer_id))
+        else:
+            print('< [{}] an unexpected error has occured :('.format(client_id))
+            return False
+
+    # Removendo o emissor e atualizando os dicionários
+    senders.pop(client_id)
+    available_sockets.pop(sock)
+
+    # Possibilitando com que o identificador seja reutilizado
+    sender_ids.add(client_id)
+    print('< [{}] sender disconnected'.format(client_id))
+
+    return True
+
+def process_sender_msg_message(sock, client_id, dest_id, seq_number):
+    # Lendo a mensagem propriamente dita
+    message_length = unpack('!H', recv_expected_length(sock, 2))[0]
+    message_body = recv_expected_length(sock, message_length)
+    
+    # Verificando se a mensagem será de broadcast
+    if dest_id == 0:
+        for displayer_id in displayers:
+            # Enviando mensagem para o exibidor
+            displayer_sock = displayers[displayer_id]['sock']
+            send_msg_message(displayer_sock, client_id, displayer_id, seq_number, message_body)
+
+            # Esperando por uma mensagem de OK
+            header = recv_expected_length(displayer_sock, 8)
+            header = unpack('!4H', header)
+
+            if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+                print('< [{}] message sent to displayer {}'.format(client_id, displayer_id))
+            else:
+                print('< [{}] an unexpected error has occured :('.format(client_id))
+                return False
+        
+        return True
+
+    elif is_sender(dest_id):
+        if dest_id not in senders:
+            print('< [{}] client trying to send MSG to non-existent sender'.format(client_id))
+            return False
+
+        displayer_id = senders[dest_id]['displayer_id']
+        if displayer_id is None:
+            print('< [{}] client trying to send MSG to sender with no displayer'.format(client_id))
+            return False
+        
+        # Enviando mensagem para exibidor e esperando um OK
+        displayer_sock = displayers[displayer_id]['sock']
+        send_msg_message(displayer_sock, client_id, displayer_id, seq_number, message_body)
+        
+        header = recv_expected_length(displayer_sock, 8)
+        header = unpack('!4H', header)
+        
+        if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+            print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
+            return True
+        else:
+            print('< [{}] an unexpected error has occured :('.format(client_id))
+            return False
+    
+    elif is_displayer(dest_id):
+        if dest_id not in displayers:
+            print('< [{}] client trying to send MSG to non-existent displayer'.format(client_id))
+            return False
+
+        # Enviando mensagem para exibidor e esperando um OK
+        displayer_sock = displayers[dest_id]['sock']
+        send_msg_message(displayer_sock, client_id, dest_id, seq_number, message_body)
+        
+        header = recv_expected_length(displayer_sock, 8)
+        header = unpack('!4H', header)
+
+        if header == (type_encoder['OK'], dest_id, SERVER_ID, seq_number):
+            print('< [{}] message sent to displayer {}'.format(client_id, dest_id))
+            return True
+        else:
+            print('< [{}] an unexpected error has occured :('.format(client_id))
+            return False
+
+    print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
+    return False
+    
 def process_sender(client_id):
     """ Função para implementarmos a lógica dos emissores. """
 
@@ -130,46 +241,18 @@ def process_sender(client_id):
         return
 
     if type_decoder[message_type] == 'FLW':
-        # Verificando se a mensagem não foi direcionada para o servidor
-        if dest_id != SERVER_ID:
-            print('< FLW message not directed to server')
-            send_erro_message(sock, SERVER_ID, client_id, seq_number)
-            return
+        response_header = [sock, SERVER_ID, client_id, seq_number]
+        success = process_sender_flw_message(sock, client_id, dest_id, seq_number, displayer_id)
+        send_ok_message(*response_header) if success else send_erro_message(*response_header)
 
-        # Verificando se temos um exibidor associado, se sim devemos removê-lo
-        if displayer_id is not None:
-            displayer_sock = displayers[displayer_id]['sock']
-            send_flw_message(displayer_sock, SERVER_ID, displayer_id, seq_number)
+    elif type_decoder[message_type] == 'MSG':
+        response_header = [sock, SERVER_ID, client_id, seq_number]
+        success = process_sender_msg_message(sock, client_id, dest_id, seq_number)
+        send_ok_message(*response_header) if success else send_erro_message(*response_header)
 
-            # Esperando receber um OK do cliente
-            header = recv_expected_length(displayer_sock, 8)
-            header = unpack('!4H', header)
-
-            if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
-                displayers.pop(displayer_id)
-                available_sockets.pop(displayer_sock)
-
-                # Possibilitando com que o identificador seja reutilizado e enviando OK para cliente
-                displayer_ids.add(displayer_id)
-                print('< [{}] displayer {} disconnected'.format(client_id, displayer_id))
-            else:
-                print('< [{}] an unexpected error has occured :('.format(client_id))
-                send_erro_message(sock, SERVER_ID, client_id, seq_number)
-                return
-
-        # Removendo o emissor e atualizando os dicionários
-        senders.pop(client_id)
-        available_sockets.pop(sock)
-
-        # Possibilitando com que o identificador seja reutilizado e enviando OK para cliente
-        sender_ids.add(client_id)
-        send_ok_message(sock, SERVER_ID, client_id, seq_number)
-        print('< [{}] sender disconnected'.format(client_id))
-
-        return
-
-    # Enviando uma mensagem de erro (default)
-    send_erro_message(sock, SERVER_ID, client_id, seq_number)
+    else:
+        # Enviando uma mensagem de erro (default)
+        send_erro_message(sock, SERVER_ID, client_id, seq_number)
     
 if __name__ == '__main__':
     if len(argv) != 2:

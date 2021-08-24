@@ -52,9 +52,7 @@ def parse_typed_message(buffer):
     message_tokens = buffer.split()
     message_type = message_tokens[0]
 
-    if message_type not in ('FLW', 'MSG', 'CREQ', 'FILE'):
-        raise ValueError('< message type must be FLW, MSG, CREQ or FILE')
-    elif message_type == 'FLW' and len(message_tokens) != 1:
+    if message_type == 'FLW' and len(message_tokens) != 1:
         raise ValueError('< the FLW message does not contain any additional parameters, please try again')
     elif message_type == 'CREQ' and len(message_tokens) != 2:
         raise ValueError("< the CREQ message only requires the receiver's ID as parameter, please try again")
@@ -71,6 +69,8 @@ def run_client(sock, source_id):
         Função principal para implementarmos a lógica do cliente emissor.
         Para desconectar o cliente podemos enviar um FLW via interface ou pressionar CTRL + C.
     """
+
+    global seq_number
 
     while True:
         try:
@@ -90,7 +90,21 @@ def run_client(sock, source_id):
                 print('< disconnecting from server... Goodbye!')
                 break
             else:
-                print('\< an unexpected error has occured :(')
+                print('< an unexpected error has occured :(')
+
+        elif message_type == 'MSG':
+            send_msg_message(sock, source_id, dest_id, seq_number, message_body)
+
+            header = recv_expected_length(sock, 8)
+            header = unpack('!4H', header)
+            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
+                print('< message sent successfully')
+                seq_number += 1
+            else:
+                print('< an error has occured, please try again')
+        
+        else:
+            print('< message type must be FLW, MSG, CREQ or FILE')
 
 if __name__ == '__main__':
     if len(argv) not in (2, 3):
