@@ -41,6 +41,7 @@ def create_client(sock):
 
     # Verificando se temos identificadores disponíveis para esse cliente
     if (source_id == 0 and len(displayer_ids) == 0) or (source_id != 0 and len(sender_ids) == 0):
+        print('< unique identifiers not available, this server is full')
         send_erro_message(conn, SERVER_ID, source_id, seq_number)
         return
 
@@ -51,6 +52,7 @@ def create_client(sock):
             available_sockets[conn] = client_id
             displayers[client_id] = {'sock': conn, 'sender_id': None}
 
+            print('< creating new displayer with ID {}'.format(client_id))
             send_ok_message(conn, SERVER_ID, client_id, seq_number)
             return
 
@@ -58,14 +60,17 @@ def create_client(sock):
             client_id = sender_ids.pop()
             available_sockets[conn] = client_id
             senders[client_id] = {'sock': conn, 'displayer_id': None}
+            print('< creating new sender with ID {}'.format(client_id))
             
             if is_displayer(source_id):
                 senders[client_id]['displayer_id'] = source_id
                 displayers[source_id]['sender_id'] = client_id
-
+                print('< establishing association with displayer {}'.format(source_id))
+            
             send_ok_message(conn, SERVER_ID, client_id, seq_number)
             return
 
+    print('< error during client creation')
     send_erro_message(conn, SERVER_ID, source_id, seq_number)
 
 def process_displayer(client_id):
@@ -90,6 +95,7 @@ def process_displayer(client_id):
     if type_decoder[message_type] == 'FLW':
         # Verificando se a mensagem não foi direcionada para o servidor
         if dest_id != SERVER_ID:
+            print('< FLW message not directed to server')
             send_erro_message(sock, SERVER_ID, client_id, seq_number)
             return
 
@@ -126,17 +132,9 @@ def process_sender(client_id):
     if type_decoder[message_type] == 'FLW':
         # Verificando se a mensagem não foi direcionada para o servidor
         if dest_id != SERVER_ID:
+            print('< FLW message not directed to server')
             send_erro_message(sock, SERVER_ID, client_id, seq_number)
             return
-
-        # Removendo o emissor e atualizando os dicionários
-        senders.pop(client_id)
-        available_sockets.pop(sock)
-
-        # Possibilitando com que o identificador seja reutilizado e enviando OK para cliente
-        sender_ids.add(client_id)
-        send_ok_message(sock, SERVER_ID, client_id, seq_number)
-        print('< [{}] sender disconnected'.format(client_id))
 
         # Verificando se temos um exibidor associado, se sim devemos removê-lo
         if displayer_id is not None:
@@ -156,6 +154,17 @@ def process_sender(client_id):
                 print('< [{}] displayer {} disconnected'.format(client_id, displayer_id))
             else:
                 print('< [{}] an unexpected error has occured :('.format(client_id))
+                send_erro_message(sock, SERVER_ID, client_id, seq_number)
+                return
+
+        # Removendo o emissor e atualizando os dicionários
+        senders.pop(client_id)
+        available_sockets.pop(sock)
+
+        # Possibilitando com que o identificador seja reutilizado e enviando OK para cliente
+        sender_ids.add(client_id)
+        send_ok_message(sock, SERVER_ID, client_id, seq_number)
+        print('< [{}] sender disconnected'.format(client_id))
 
         return
 

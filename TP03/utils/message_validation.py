@@ -10,10 +10,12 @@ def validate_oi_message(source_id, dest_id, displayers):
 
     # Verificando se estamos associando um exibidor que não existe
     if is_displayer(source_id) and source_id not in displayers:
+        print('< trying to establish association with non-existent displayer')
         return -1
 
     # Verificando se a mensagem de OI não foi direcionada para o servidor
     if dest_id != SERVER_ID:
+        print('< OI message not directed to server')
         return -1
 
     return 0 if (source_id == 0) else 1
