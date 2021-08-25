@@ -55,7 +55,7 @@ def create_client(sock):
         return
 
     if type_decoder[message_type] == 'OI':
-        status = validate_oi_message(source_id, dest_id, displayers)
+        status = validate_oi_message(source_id, dest_id, seq_number, displayers)
         if status == 0:
             client_id = displayer_ids.pop()
             available_sockets[conn] = client_id
@@ -165,28 +165,23 @@ def process_sender_flw_message(sock, client_id, dest_id, seq_number, displayer_i
     return True
 
 def process_sender_msg_message(sock, client_id, dest_id, seq_number):
+    # Iremos guardar nessa lista os exibidores que iremos repassar a mensagem
+    send_to_list = []
+
     # Lendo a mensagem propriamente dita
     message_length = unpack('!H', recv_expected_length(sock, 2))[0]
     message_body = recv_expected_length(sock, message_length)
     
-    # Verificando se a mensagem será de broadcast
+    # Recuperando para quais exibidores nós devemos encaminhar a mensagem
     if dest_id == 0:
-        for displayer_id in displayers:
-            # Enviando mensagem para o exibidor
-            displayer_sock = displayers[displayer_id]['sock']
-            send_msg_message(displayer_sock, client_id, displayer_id, seq_number, message_body)
+        send_to_list = displayers.keys()
 
-            # Esperando por uma mensagem de OK
-            header = recv_expected_length(displayer_sock, 8)
-            header = unpack('!4H', header)
+    elif is_displayer(dest_id):
+        if dest_id not in displayers:
+            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
+            return False
 
-            if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
-                print('< [{}] message sent to displayer {}'.format(client_id, displayer_id))
-            else:
-                print('< [{}] an unexpected error has occured :('.format(client_id))
-                return False
-        
-        return True
+        send_to_list = [dest_id]
 
     elif is_sender(dest_id):
         if dest_id not in senders:
@@ -197,8 +192,15 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
         if displayer_id is None:
             print('< [{}] client trying to send message to sender with no displayer'.format(client_id))
             return False
-        
-        # Enviando mensagem para exibidor e esperando um OK
+
+        send_to_list = [displayer_id]
+
+    else:
+        print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
+        return False
+
+    # Enviando mensagem para o(s) exibidor(es)
+    for displayer_id in send_to_list:
         displayer_sock = displayers[displayer_id]['sock']
         send_msg_message(displayer_sock, client_id, displayer_id, seq_number, message_body)
         
@@ -207,32 +209,11 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
 
         if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
             print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
-            return True
-        else:
-            print('< [{}] an unexpected error has occured :('.format(client_id))
-            return False
-    
-    elif is_displayer(dest_id):
-        if dest_id not in displayers:
-            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
-            return False
-
-        # Enviando mensagem para exibidor e esperando um OK
-        displayer_sock = displayers[dest_id]['sock']
-        send_msg_message(displayer_sock, client_id, dest_id, seq_number, message_body)
-        
-        header = recv_expected_length(displayer_sock, 8)
-        header = unpack('!4H', header)
-
-        if header == (type_encoder['OK'], dest_id, SERVER_ID, seq_number):
-            print('< [{}] message sent to displayer {}'.format(client_id, dest_id))
-            return True
         else:
             print('< [{}] an unexpected error has occured :('.format(client_id))
             return False
 
-    print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
-    return False
+    return True
 
 def process_sender_creq_message(sock, client_id, dest_id, seq_number):
     # Construindo a lista de clientes
@@ -531,7 +512,7 @@ if __name__ == '__main__':
                     print('< socket not recognized as server or client')
                 
                 print('-----------------------------------\n')
-                print('--> socket ids:', available_sockets)
-                print('--> emissores:', senders)
-                print('--> exibidores:', displayers)
-                print('\n-----------------------------------')
+                print('--> socket ids: {}\n'.format(available_sockets))
+                print('--> emissores: {}\n'.format(senders))
+                print('--> exibidores: {}\n'.format(displayers))
+                print('-----------------------------------')

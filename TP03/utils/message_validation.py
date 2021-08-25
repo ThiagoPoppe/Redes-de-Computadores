@@ -1,7 +1,7 @@
 from utils.common import is_displayer
 from utils.constants import SERVER_ID
 
-def validate_oi_message(source_id, dest_id, displayers):
+def validate_oi_message(source_id, dest_id, seq_number, displayers):
     """ 
         Função auxiliar para validarmos uma mensagem de OI.
         Essa função 0 quando devemos criar um exibidor e 1 se for um emissor.
@@ -16,6 +16,11 @@ def validate_oi_message(source_id, dest_id, displayers):
     # Verificando se a mensagem de OI não foi direcionada para o servidor
     if dest_id != SERVER_ID:
         print('< OI message not directed to server')
+        return -1
+
+    # Verificando se o número de sequência é 0
+    if seq_number != 0:
+        print('< OI message must have sequence number equal to 0')
         return -1
 
     return 0 if (source_id == 0) else 1
