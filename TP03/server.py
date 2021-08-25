@@ -4,18 +4,20 @@ from sys import argv
 from struct import unpack
 
 from utils.constants import SERVER_ID
+from utils.common import type_encoder, type_decoder
+
 from utils.common import recv_expected_length
 from utils.common import is_sender, is_displayer
-from utils.common import type_encoder, type_decoder
-from utils.message_validation import validate_oi_message
 
-from utils.message_creation import send_ok_message
-from utils.message_creation import send_erro_message
-from utils.message_creation import send_flw_message
-from utils.message_creation import send_msg_message
-from utils.message_creation import send_clist_message
-from utils.message_creation import send_file_message
-from utils.message_creation import send_file_chunk_message
+from utils.common import send_ok_message
+from utils.common import send_erro_message
+from utils.common import send_flw_message
+from utils.common import send_msg_message
+from utils.common import send_clist_message
+from utils.common import send_file_message
+from utils.common import send_file_chunk_message
+
+from utils.message_validation import validate_oi_message
 
 # Criaremos um dicionário para mantermos os sockets disponíveis
 # Cada chave (socket) terá como informação o id do socket associado

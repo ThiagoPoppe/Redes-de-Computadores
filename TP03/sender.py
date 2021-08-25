@@ -1,26 +1,24 @@
 import os
 import socket
 from sys import argv
-from struct import unpack
 
 from utils.constants import SERVER_ID
 from utils.constants import MAX_CHUNK_SIZE
 
-from utils.common import recv_expected_length
-from utils.common import type_encoder, type_decoder
+from utils.common import type_encoder
+from utils.common import recv_ok_message
+from utils.common import initialize_client
 
-from utils.message_creation import send_oi_message
-from utils.message_creation import send_flw_message
-from utils.message_creation import send_msg_message
-from utils.message_creation import send_creq_message
-from utils.message_creation import send_file_message
-from utils.message_creation import send_file_chunk_message
+from utils.common import send_flw_message
+from utils.common import send_msg_message
+from utils.common import send_creq_message
+from utils.common import send_file_message
+from utils.common import send_file_chunk_message
 
-file_id = 0
-seq_number = 0
+seq_number = 1
 
 # Recuperando o caminho para o diretório atual.
-# Todos os arquivos a ser enviados deverão estar na pasta enviar/
+# Todos os arquivos enviados deverão estar na pasta enviar/
 workdir = os.path.dirname(os.path.abspath(__file__))
 senddir = os.path.join(workdir, 'enviar')
 
@@ -36,7 +34,7 @@ def get_dest_id(message_tokens):
 
     return int(dest_id)
 
-def get_message_body(message_tokens):
+def get_message_body(message_type, message_tokens):
     """ Função para recuperar a mensagem codificada em ASCII """
 
     if message_tokens[0] in ('FLW', 'CREQ'):
@@ -45,6 +43,9 @@ def get_message_body(message_tokens):
     message_body = ' '.join(message_tokens[2:])
     if not message_body.isascii():
         raise ValueError("< your message doesn't contain only ASCII characters, please try again")
+
+    if message_type == 'FILE' and message_body not in os.listdir('enviar/'):
+        raise ValueError('< file {} not found in "enviar/" folder'.format(message_body))
 
     return message_body
 
@@ -69,15 +70,12 @@ def parse_typed_message(buffer):
         raise ValueError('< not enough parameters specified, please try again')
 
     dest_id = get_dest_id(message_tokens)
-    message_body = get_message_body(message_tokens)
+    message_body = get_message_body(message_type, message_tokens)
 
     return message_type, dest_id, message_body
 
 def chunkfy(filename):
     """ Função para criar chunks e retornar a extensão (em ASCII) do arquivo multimídia de entrada """
-    
-    if not filename.isascii():
-        raise ValueError("< your message doesn't contain only ASCII characters, please try again")
     
     # Recuperando a extensão do arquivo e lendo o arquivo em binário
     file_ext = filename.split('.')[1].encode('ascii')    
@@ -99,15 +97,15 @@ def chunkfy(filename):
 
     return file_ext, chunks
 
-def run_client(sock, source_id):
+def run_client(sock, client_id):
     """
         Função principal para implementarmos a lógica do cliente emissor.
         Para desconectar o cliente podemos enviar um FLW via interface ou pressionar CTRL + C.
     """
 
-    global file_id
     global seq_number
 
+    file_id = 0
     while True:
         try:
             buffer = input('> ')
@@ -115,51 +113,41 @@ def run_client(sock, source_id):
         except ValueError as e:
             print(e)
             continue
+        except Exception as e:
+            print('< captured exception: {}'.format(e))
+            print('< disconnecting from server due to unexpected message format...')
+            break
 
-        # Enviando mensagem de FLW e esperando resposta do servidor
+        # Interrompendo o loop para finalizarmos o cliente
         if message_type == 'FLW':
-            send_flw_message(sock, source_id, SERVER_ID, seq_number)
-
-            header = recv_expected_length(sock, 8)
-            header = unpack('!4H', header)
-            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
-                print('< disconnecting from server... Goodbye!')
-                break
-            else:
-                print('< an unexpected error has occured :(')
+            print('< disconnecting from server...')
+            break
 
         elif message_type == 'MSG':
             message_body = message_body.encode('ascii')
-            send_msg_message(sock, source_id, dest_id, seq_number, message_body)
-
-            header = recv_expected_length(sock, 8)
-            header = unpack('!4H', header)
-            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
-                print('< message sent successfully')
+            send_msg_message(sock, client_id, dest_id, seq_number, message_body)
+            
+            if recv_ok_message(sock, (type_encoder['OK'], SERVER_ID, client_id, seq_number)):
+                print('< message MSG sent successfully')
                 seq_number += 1
             else:
                 print('< an error has occured, please try again')
         
         elif message_type == 'CREQ':
-            send_creq_message(sock, source_id, dest_id, seq_number)
-
-            header = recv_expected_length(sock, 8)
-            header = unpack('!4H', header)
-            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
-                print('< message sent successfully')
+            send_creq_message(sock, client_id, dest_id, seq_number)
+            
+            if recv_ok_message(sock, (type_encoder['OK'], SERVER_ID, client_id, seq_number)):
+                print('< message CREQ sent successfully')
                 seq_number += 1
             else:
                 print('< an error has occured, please try again')
 
         elif message_type == 'FILE':
             file_ext, chunks = chunkfy(message_body)
-            send_file_message(sock, source_id, dest_id, seq_number, file_id, len(chunks), file_ext)
+            send_file_message(sock, client_id, dest_id, seq_number, file_id, len(chunks), file_ext)
 
-            # Esperando OK do servidor
-            header = recv_expected_length(sock, 8)
-            header = unpack('!4H', header)
-            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
-                print('< message sent successfully')
+            if recv_ok_message(sock, (type_encoder['OK'], SERVER_ID, client_id, seq_number)):
+                print('< message FILE sent successfully')
                 seq_number += 1
             else:
                 print('< an error has occured, please try again')
@@ -167,12 +155,10 @@ def run_client(sock, source_id):
 
             # Começando envio de chunks
             for chunk_id, chunk in enumerate(chunks):
-                send_file_chunk_message(sock, source_id, dest_id, seq_number, file_id, chunk_id, chunk)
+                send_file_chunk_message(sock, client_id, dest_id, seq_number, file_id, chunk_id, chunk)
 
                 # Esperando OK do servidor
-                header = recv_expected_length(sock, 8)
-                header = unpack('!4H', header)
-                if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
+                if recv_ok_message(sock, (type_encoder['OK'], SERVER_ID, client_id, seq_number)):
                     print('< file chunk {} sent successfully'.format(chunk_id))
                     seq_number += 1
                 else:
@@ -191,40 +177,28 @@ if __name__ == '__main__':
         exit(1)
 
     ip, host = argv[1].split(':')
+    source_id = int(argv[2]) if len(argv) == 3 else 1
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((ip, int(host)))
+        client_id = initialize_client(sock, ip, host, source_id)
 
-        # Enviando mensagem de OI para conectar ao servidor
-        source_id = int(argv[2]) if len(argv) == 3 else 1
-        send_oi_message(sock, source_id, seq_number)
-
-        # Verificando se recebemos um OK do servidor
-        header = recv_expected_length(sock, 8)
-        header = unpack('!4H', header)
-
-        if type_decoder[header[0]] == 'OK':
-            seq_number += 1
-            source_id = header[2]
-            
-            print('< Welcome, client! Your id is:', source_id)
-            print('< Here is the following list of available commands:')
-            print('    1. FLW: disconnects from server')
-            print('    2. MSG <id> <message>: sends a message to the client specified by the <id> parameter')
-            print('    3. CREQ <id>: sends a client list requisition to the client specified by the <id> parameter')
-            print('    4. FILE <id> <filename.ext>: sends a file to the client specified by the <id> parameter')
-        else:
-            print('< something went wrong, please try again')
-            exit(1)
-
+        print('< All messages must be in ASCII format (watch out for special characters)')
+        print('< All files must exist in the "enviar/" folder')
+        print('< Here is the following list of available commands:')
+        print('    1. FLW: disconnects from server')
+        print('    2. MSG <id> <message>: sends a message to the client specified by the <id> parameter')
+        print('    3. CREQ <id>: sends a client list requisition to the client specified by the <id> parameter')
+        print('    4. FILE <id> <filename.ext>: sends a file to the client specified by the <id> parameter\n')
+        
+        # Executando o cliente inicializado
         try:
-            run_client(sock, source_id)
+            run_client(sock, client_id)
         except KeyboardInterrupt:
-            # Enviando mensagem de FLW e esperando resposta do servidor
-            send_flw_message(sock, source_id, SERVER_ID, seq_number)
+            print('\n< disconnecting from server...')
 
-            header = recv_expected_length(sock, 8)
-            header = unpack('!4H', header)
-            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
-                print('\n< disconnecting from server... Goodbye!')
-            else:
-                print('\n< an unexpected error has occured :(')
+        # Enviando mensagem de FLW e esperando um OK do servidor
+        send_flw_message(sock, client_id, SERVER_ID, seq_number)
+        if recv_ok_message(sock, (type_encoder['OK'], SERVER_ID, client_id, seq_number)):
+            print('< Goodbye!')
+        else:
+            print('< an unexpected error has occured :(')
