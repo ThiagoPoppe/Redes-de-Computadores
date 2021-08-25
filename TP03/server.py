@@ -8,7 +8,14 @@ from utils.common import recv_expected_length
 from utils.common import is_sender, is_displayer
 from utils.common import type_encoder, type_decoder
 from utils.message_validation import validate_oi_message
-from utils.message_creation import send_clist_message, send_creq_message, send_erro_message, send_file_chunk_message, send_file_message, send_flw_message, send_msg_message, send_ok_message
+
+from utils.message_creation import send_ok_message
+from utils.message_creation import send_erro_message
+from utils.message_creation import send_flw_message
+from utils.message_creation import send_msg_message
+from utils.message_creation import send_clist_message
+from utils.message_creation import send_file_message
+from utils.message_creation import send_file_chunk_message
 
 # Criaremos um dicionário para mantermos os sockets disponíveis
 # Cada chave (socket) terá como informação o id do socket associado
@@ -299,7 +306,56 @@ def process_sender_file_message(sock, client_id, dest_id, seq_number):
     file_id, n_chunks, len_ext = unpack('!3H', recv_expected_length(sock, 6))
     file_ext = recv_expected_length(sock, len_ext)
  
-    if is_sender(dest_id):
+    # Verificando se a mensagem será de broadcast
+    if dest_id == 0:
+        for displayer_id in displayers:
+            # Repassando a mensagem FILE para o exibidor e esperando um OK
+            displayer_sock = displayers[displayer_id]['sock']
+            send_file_message(displayer_sock, client_id, displayer_id, seq_number, file_id, n_chunks, file_ext)
+            
+            header = recv_expected_length(displayer_sock, 8)
+            header = unpack('!4H', header)
+
+            if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+                print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
+            else:
+                print('< [{}] an unexpected error has occured :('.format(client_id))
+                send_erro_message(sock, SERVER_ID, client_id, seq_number)
+                return
+
+        # Enviando OK para emissor começar a enviar FILE_CHUNK
+        send_ok_message(sock, SERVER_ID, client_id, seq_number)
+
+        # Iremos repassar N chunks do emissor para os exibidores
+        for _ in range(n_chunks):
+            # Lendo cabeçalho apenas para recuperarmos o número de sequência
+            chunk_header = recv_expected_length(sock, 8)
+            _, _, _, seq_number = unpack('!4H', chunk_header)
+
+            # Lendo os metadados para recuperarmos o tamanho do chunk
+            chunk_metadata = recv_expected_length(sock, 6)
+            file_id, chunk_id, len_chunk = unpack('!3H', chunk_metadata)
+            chunk = recv_expected_length(sock, len_chunk)
+
+            for displayer_id in displayers:
+                # Repassando chunk e esperando um OK do exibidor
+                displayer_sock = displayers[displayer_id]['sock']
+                send_file_chunk_message(displayer_sock, client_id, displayer_id, seq_number, file_id, chunk_id, chunk)
+
+                header = recv_expected_length(displayer_sock, 8)
+                header = unpack('!4H', header)
+
+                if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
+                    print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
+                else:
+                    print('< [{}] an unexpected error has occured :('.format(client_id))
+                    send_erro_message(sock, SERVER_ID, client_id, seq_number)
+                    return
+
+            # Enviando OK para emissor começar a enviar o próximo FILE_CHUNK
+            send_ok_message(sock, SERVER_ID, client_id, seq_number)
+
+    elif is_sender(dest_id):
         if dest_id not in senders:
             print('< [{}] client trying to send message to non-existent sender'.format(client_id))
             send_erro_message(sock, SERVER_ID, client_id, seq_number)
