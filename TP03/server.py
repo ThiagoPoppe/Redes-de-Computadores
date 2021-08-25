@@ -123,6 +123,39 @@ def process_displayer(client_id):
     # Enviando uma mensagem de erro (default)
     send_erro_message(sock, SERVER_ID, client_id, seq_number)
 
+def get_send_to_list(client_id, dest_id):
+    """ 
+        Função para recuperarmos uma lista dos exibidores que devemos encaminhar a mensagem
+        Caso haja algum erro na mensagem, essa função irá retornar None
+    """
+
+    # Caso onde a mensagem é de broadcast
+    if dest_id == 0:
+        return displayers.keys()
+
+    # Caso onde a lista será composta apenas por um exibidor
+    elif is_displayer(dest_id):
+        if dest_id not in displayers:
+            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
+            return None
+
+        return [dest_id]
+
+    # Caso onde a lista será composta pelo exibidor associado ao emissor
+    elif is_sender(dest_id):
+        if dest_id not in senders:
+            print('< [{}] client trying to send message to non-existent sender'.format(client_id))
+            return None
+
+        displayer_id = senders[dest_id]['displayer_id']
+        if displayer_id is None:
+            print('< [{}] client trying to send message to sender with no displayer'.format(client_id))
+            return None
+
+        return [displayer_id]
+
+    return None
+
 def process_sender_flw_message(sock, client_id, dest_id, seq_number, displayer_id):
     """ 
         Função para processarmos uma mensagem de FLW.
@@ -165,37 +198,18 @@ def process_sender_flw_message(sock, client_id, dest_id, seq_number, displayer_i
     return True
 
 def process_sender_msg_message(sock, client_id, dest_id, seq_number):
-    # Iremos guardar nessa lista os exibidores que iremos repassar a mensagem
-    send_to_list = []
+    """ 
+        Função para processarmos uma mensagem de MSG.
+        Retornaremos True quando recebermos um OK e False caso contrário.
+    """
 
     # Lendo a mensagem propriamente dita
     message_length = unpack('!H', recv_expected_length(sock, 2))[0]
     message_body = recv_expected_length(sock, message_length)
     
     # Recuperando para quais exibidores nós devemos encaminhar a mensagem
-    if dest_id == 0:
-        send_to_list = displayers.keys()
-
-    elif is_displayer(dest_id):
-        if dest_id not in displayers:
-            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
-            return False
-
-        send_to_list = [dest_id]
-
-    elif is_sender(dest_id):
-        if dest_id not in senders:
-            print('< [{}] client trying to send message to non-existent sender'.format(client_id))
-            return False
-
-        displayer_id = senders[dest_id]['displayer_id']
-        if displayer_id is None:
-            print('< [{}] client trying to send message to sender with no displayer'.format(client_id))
-            return False
-
-        send_to_list = [displayer_id]
-
-    else:
+    send_to_list = get_send_to_list(client_id, dest_id)
+    if send_to_list is None:
         print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
         return False
 
@@ -216,39 +230,22 @@ def process_sender_msg_message(sock, client_id, dest_id, seq_number):
     return True
 
 def process_sender_creq_message(sock, client_id, dest_id, seq_number):
+    """ 
+        Função para processarmos uma mensagem de CREQ.
+        Retornaremos True quando recebermos um OK e False caso contrário.
+    """
+
     # Construindo a lista de clientes
     client_list = [*senders] + [*displayers]
 
-    # Verificando se a mensagem será de broadcast
-    if dest_id == 0:
-        for displayer_id in displayers:
-            # Enviando mensagem para o exibidor
-            displayer_sock = displayers[displayer_id]['sock']
-            send_clist_message(displayer_sock, client_id, displayer_id, seq_number, client_list)
+    # Recuperando para quais exibidores nós devemos encaminhar a mensagem
+    send_to_list = get_send_to_list(client_id, dest_id)
+    if send_to_list is None:
+        print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
+        return False
 
-            # Esperando por uma mensagem de OK
-            header = recv_expected_length(displayer_sock, 8)
-            header = unpack('!4H', header)
-
-            if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
-                print('< [{}] message sent to displayer {}'.format(client_id, displayer_id))
-            else:
-                print('< [{}] an unexpected error has occured :('.format(client_id))
-                return False
-        
-        return True
-
-    elif is_sender(dest_id):
-        if dest_id not in senders:
-            print('< [{}] client trying to send message to non-existent sender'.format(client_id))
-            return False
-
-        displayer_id = senders[dest_id]['displayer_id']
-        if displayer_id is None:
-            print('< [{}] client trying to send message to sender with no displayer'.format(client_id))
-            return False
-        
-        # Enviando mensagem para exibidor e esperando um OK
+    # Enviando mensagem para o(s) exibidor(es)
+    for displayer_id in send_to_list:
         displayer_sock = displayers[displayer_id]['sock']
         send_clist_message(displayer_sock, client_id, displayer_id, seq_number, client_list)
         
@@ -257,32 +254,11 @@ def process_sender_creq_message(sock, client_id, dest_id, seq_number):
 
         if header == (type_encoder['OK'], displayer_id, SERVER_ID, seq_number):
             print('< [{}] message sent to sender {} with displayer {}'.format(client_id, dest_id, displayer_id))
-            return True
-        else:
-            print('< [{}] an unexpected error has occured :('.format(client_id))
-            return False
-    
-    elif is_displayer(dest_id):
-        if dest_id not in displayers:
-            print('< [{}] client trying to send message to non-existent displayer'.format(client_id))
-            return False
-
-        # Enviando mensagem para exibidor e esperando um OK
-        displayer_sock = displayers[dest_id]['sock']
-        send_clist_message(displayer_sock, client_id, dest_id, seq_number, client_list)
-        
-        header = recv_expected_length(displayer_sock, 8)
-        header = unpack('!4H', header)
-
-        if header == (type_encoder['OK'], dest_id, SERVER_ID, seq_number):
-            print('< [{}] message sent to displayer {}'.format(client_id, dest_id))
-            return True
         else:
             print('< [{}] an unexpected error has occured :('.format(client_id))
             return False
 
-    print("< [{}] the client didn't inform a valid receiver ID".format(client_id))
-    return False
+    return True
 
 def process_sender_file_message(sock, client_id, dest_id, seq_number):
     # Lendo metadados da mensagem
