@@ -48,8 +48,7 @@ def send_clist_message(sock, source_id, dest_id, seq_number, client_list):
     message = header + pack(fmt, n_clients, *client_list)
     sock.sendall(message)
 
-def send_file_message(sock, source_id, dest_id, seq_number, file_id, n_chunks, file_ext):
-    ascii_ext = file_ext.encode('ascii')
+def send_file_message(sock, source_id, dest_id, seq_number, file_id, n_chunks, ascii_ext):
     len_ext = len(ascii_ext)
 
     header = [type_encoder['FILE'], source_id, dest_id, seq_number]

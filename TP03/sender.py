@@ -1,8 +1,10 @@
+import os
 import socket
 from sys import argv
 from struct import unpack
 
 from utils.constants import SERVER_ID
+from utils.constants import MAX_CHUNK_SIZE
 
 from utils.common import recv_expected_length
 from utils.common import type_encoder, type_decoder
@@ -12,8 +14,15 @@ from utils.message_creation import send_flw_message
 from utils.message_creation import send_msg_message
 from utils.message_creation import send_creq_message
 from utils.message_creation import send_file_message
+from utils.message_creation import send_file_chunk_message
 
+file_id = 0
 seq_number = 0
+
+# Recuperando o caminho para o diretório atual.
+# Todos os arquivos a ser enviados deverão estar na pasta enviar/
+workdir = os.path.dirname(os.path.abspath(__file__))
+senddir = os.path.join(workdir, 'enviar')
 
 def get_dest_id(message_tokens):
     """ Função para recuperar o ID do destinatário da mensagem """
@@ -37,7 +46,7 @@ def get_message_body(message_tokens):
     if not message_body.isascii():
         raise ValueError("< your message doesn't contain only ASCII characters, please try again")
 
-    return message_body.encode('ascii')
+    return message_body
 
 def parse_typed_message(buffer):
     """ 
@@ -64,12 +73,39 @@ def parse_typed_message(buffer):
 
     return message_type, dest_id, message_body
 
+def chunkfy(filename):
+    """ Função para criar chunks e retornar a extensão (em ASCII) do arquivo multimídia de entrada """
+    
+    if not filename.isascii():
+        raise ValueError("< your message doesn't contain only ASCII characters, please try again")
+    
+    # Recuperando a extensão do arquivo e lendo o arquivo em binário
+    file_ext = filename.split('.')[1].encode('ascii')    
+    with open(os.path.join(senddir, filename), 'rb') as fin:
+        data = fin.read()
+
+    # Computando quantos chunks devemos enviar
+    n_chunks = (len(data) // MAX_CHUNK_SIZE)
+    if len(data) % MAX_CHUNK_SIZE != 0:
+        n_chunks += 1
+
+    chunks = []
+    for i in range(n_chunks):
+        begin = i * MAX_CHUNK_SIZE
+        end = begin + MAX_CHUNK_SIZE
+
+        chunk = data[begin:end]
+        chunks.append(chunk)
+
+    return file_ext, chunks
+
 def run_client(sock, source_id):
     """
         Função principal para implementarmos a lógica do cliente emissor.
         Para desconectar o cliente podemos enviar um FLW via interface ou pressionar CTRL + C.
     """
 
+    global file_id
     global seq_number
 
     while True:
@@ -93,6 +129,7 @@ def run_client(sock, source_id):
                 print('< an unexpected error has occured :(')
 
         elif message_type == 'MSG':
+            message_body = message_body.encode('ascii')
             send_msg_message(sock, source_id, dest_id, seq_number, message_body)
 
             header = recv_expected_length(sock, 8)
@@ -113,7 +150,38 @@ def run_client(sock, source_id):
                 seq_number += 1
             else:
                 print('< an error has occured, please try again')
-                
+
+        elif message_type == 'FILE':
+            file_ext, chunks = chunkfy(message_body)
+            send_file_message(sock, source_id, dest_id, seq_number, file_id, len(chunks), file_ext)
+
+            # Esperando OK do servidor
+            header = recv_expected_length(sock, 8)
+            header = unpack('!4H', header)
+            if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
+                print('< message sent successfully')
+                seq_number += 1
+            else:
+                print('< an error has occured, please try again')
+                continue
+
+            # Começando envio de chunks
+            for chunk_id, chunk in enumerate(chunks):
+                send_file_chunk_message(sock, source_id, dest_id, seq_number, file_id, chunk_id, chunk)
+
+                # Esperando OK do servidor
+                header = recv_expected_length(sock, 8)
+                header = unpack('!4H', header)
+                if header == (type_encoder['OK'], SERVER_ID, source_id, seq_number):
+                    print('< file chunk {} sent successfully'.format(chunk_id))
+                    seq_number += 1
+                else:
+                    print('< an unexpected error has occured :(')
+
+            # Após o arquivo ser enviado por completo, atualizaremos o ID do arquivo
+            print('< file {} sent successfully'.format(message_body))
+            file_id += 1
+
         else:
             print('< message type must be FLW, MSG, CREQ or FILE')
 
